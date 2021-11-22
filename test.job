@@ -1,0 +1,22 @@
+#!/bin/sh
+#SBATCH --job-name=S2SA
+#SBATCH -o ./S2SA.test-%A.out
+#SBATCH -e ./S2SA.test-%A.err
+##SBATCH --nodelist=ilps-cn109
+#SBATCH -p gpu
+#SBATCH --gres=gpu:1
+##SBATCH -c16
+#SBATCH --mem=10G
+#SBATCH --time=1-00:00:00
+
+# echo run info
+echo "SLURM_SUBMIT_DIR="$SLURM_SUBMIT_DIR
+echo "SLURM_JOB_ID"=$SLURM_JOB_ID 
+echo "SLURM_JOB_NAME"=$SLURM_JOB_NAME
+
+# Set-up the environment.
+source ${HOME}/.bashrc
+conda activate env_pytorch
+
+# Start the experiment.
+python Run_S2SA.py --mode='test'
