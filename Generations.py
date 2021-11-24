@@ -111,7 +111,7 @@ def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_sta
     return greedy_indice
 
 
-def beam(model,data,vocab2id,max_len=20,width=5, encode_outputs=None, init_decoder_states=None):
+def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_decoder_states=None):
     BOS = vocab2id[BOS_WORD]
     EOS = vocab2id[EOS_WORD]
     UNK = vocab2id[UNK_WORD]

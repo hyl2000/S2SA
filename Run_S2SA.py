@@ -8,7 +8,7 @@ from Model import *
 from Utils import *
 import torch
 
-cudaid = 1
+cudaid = 0
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cudaid)
 
 base_output_path = 'output/'
@@ -98,7 +98,7 @@ def test(args, beam_width):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--local_rank", default=0, type=int)
-    parser.add_argument("--mode", default='test', type=str)
+    parser.add_argument("--mode", default='train', type=str)
     parser.add_argument("--beam_width", default=5, type=int)
     args = parser.parse_args()
 
