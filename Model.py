@@ -229,13 +229,21 @@ class S2SA(EncDecModel):
         g_enc_output, g_state = gru_forward(self.g_enc, g_words, g_lengths)
 
         knowledge = self.c_embedding_dropout(self.c_embedding(data['knowledge']))
-        batch_size, knowledge_num, _ = knowledge.size()
+        batch_size, knowledge_num, _, _ = knowledge.size()
+        k_mask = data['knowledge'].ne(0).detach()
+        t_length = []
+        print(k_mask.size())
+        for i in range(knowledge_num):
+            temp_mask = k_mask[:, i, :]
+            t_length.append(temp_mask.sum(dim=1).detach().unsqueeze(0))
+        t_length = torch.cat(t_length, dim=0)
         knowledge = knowledge.transpose(0, 2)
         hidden_knowledge = None
         knowledge_output = None
         for i in range(knowledge_num):
-            knowledge_n = knowledge[:, i, :]
-            knowledge_output_t, hidden_knowledge_t = gru_forward(self.k_enc, knowledge_n, b_lengths)
+            knowledge_n = knowledge[:, i, :, :]
+            k_lengths = t_length[i, :]
+            knowledge_output_t, hidden_knowledge_t = gru_forward(self.k_enc, knowledge_n, k_lengths)
             if i == 0:
                 hidden_knowledge = hidden_knowledge_t
                 knowledge_output = knowledge_output_t.unsqueeze(0)
@@ -258,8 +266,7 @@ class S2SA(EncDecModel):
 
         hidden_sum = torch.cat((c_state, e_hidden, g_state), dim=2)
         att_hidden = self.attn_linear(hidden_sum)
-        knowledge_mask = data['knowledge'].ne(0).detach()
-        knowledge_mask = torch.logical_not(knowledge_mask.transpose(0, 1).bool())
+        knowledge_mask = torch.logical_not(k_mask.transpose(0, 1).bool())
 
         attn, attn_weights = self.attention(att_hidden, hidden_knowledge, hidden_knowledge, key_padding_mask=knowledge_mask, need_weights=True)
         # 1 * batch * hidden & 1 * batch * knowledge_num
