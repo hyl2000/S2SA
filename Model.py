@@ -194,7 +194,7 @@ class S2SA(EncDecModel):
         self.c_embedding_dropout = nn.Dropout(0.5)
         self.b_embedding_dropout = nn.Dropout(0.5)
 
-        self.Emo_Class = Emo_Classfication(hidden_size, self.emotion_vocab)
+        self.Emo_Class = Emo_Classfication(hidden_size, self.emotion_vocab, num_layers=1, bidirectional=True)
 
         self.c_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
         self.b_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
@@ -232,7 +232,6 @@ class S2SA(EncDecModel):
         batch_size, knowledge_num, _, _ = knowledge.size()
         k_mask = data['knowledge'].ne(0).detach()
         t_length = []
-        print(k_mask.size())
         for i in range(knowledge_num):
             temp_mask = k_mask[:, i, :]
             t_length.append(temp_mask.sum(dim=1).detach().unsqueeze(0))
@@ -241,20 +240,23 @@ class S2SA(EncDecModel):
         hidden_knowledge = None
         knowledge_output = None
         for i in range(knowledge_num):
-            knowledge_n = knowledge[:, i, :, :]
+            knowledge_n = knowledge[:, i, :, :].transpose(0, 1)
             k_lengths = t_length[i, :]
+            for num in range(batch_size):
+                if k_lengths[num] == 0:
+                    k_lengths[num] = 1
             knowledge_output_t, hidden_knowledge_t = gru_forward(self.k_enc, knowledge_n, k_lengths)
             if i == 0:
                 hidden_knowledge = hidden_knowledge_t
                 knowledge_output = knowledge_output_t.unsqueeze(0)
             else:
-                hidden_knowledge = torch.cat((hidden_knowledge, hidden_knowledge_t), dim=0)
+                hidden_knowledge = torch.cat((hidden_knowledge, hidden_knowledge_t), dim=1)
                 knowledge_output = torch.cat((knowledge_output, knowledge_output_t.unsqueeze(0)), dim=0)
 
         emotion = data['emotion']
         emotion_mask = data['emotion'].ne(0).detach()
         next_emo = data['next_emotion']
-        emotion_class_hidden = torch.cat((c_state, hidden_knowledge), 0)
+        emotion_class_hidden = torch.cat((c_state, hidden_knowledge), 1)
         e, Loss_e, e_hidden = self.Emo_Class(emotion_class_hidden, emotion, emotion_mask, next_emotion=next_emo, train=True)
         pre_e = e.argmax(dim=-1)  # batch_size * 1
         x = pre_e.cpu().squeeze(0).numpy()
@@ -264,7 +266,7 @@ class S2SA(EncDecModel):
             if x[i] == y[i]:
                 count += 1
 
-        hidden_sum = torch.cat((c_state, e_hidden, g_state), dim=2)
+        hidden_sum = torch.cat((c_state, e_hidden.transpose(0, 1), g_state), dim=2)
         att_hidden = self.attn_linear(hidden_sum)
         knowledge_mask = torch.logical_not(k_mask.transpose(0, 1).bool())
 
