@@ -20,7 +20,8 @@ min_vocab_freq = 50
 
 
 def train(args):
-    torch.cuda.set_device(args.local_rank)
+    if torch.cuda.is_available():
+        torch.cuda.set_device(args.local_rank)
     # if torch.cuda.is_available():
     #     torch.distributed.init_process_group(backend='nccl')
 

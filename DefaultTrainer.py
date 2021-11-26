@@ -27,7 +27,7 @@ class DefaultTrainer(object):
         super(DefaultTrainer, self).__init__()
         self.local_rank = local_rank
 
-        if local_rank is not None:
+        if local_rank is not None and torch.cuda.is_available():
             torch.cuda.set_device(local_rank)
 
         if torch.cuda.is_available():
