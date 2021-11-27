@@ -52,7 +52,22 @@ def build_vocabulary(corpus_file, vocab_file,
            len(tgt) < min_len or len(tgt) > max_len:
             continue
 
-        counter.update(src + tgt)
+        goal = session['goal']
+        goal_full = []
+        for g in goal:
+            g_type, _, g_entity = g
+            goal_full.append(g_type)
+            goal_full.append(g_type)
+
+        knowledge = session['knowledge']
+        knowledge_full = []
+        for k in knowledge:
+            a, b, c = k
+            knowledge_full.append(a)
+            knowledge_full.append(b)
+            knowledge_full.append(c)
+
+        counter.update(src + tgt + goal_full + knowledge_full)
 
     words_and_frequencies = sorted(counter.items(), key=lambda tup: tup[0])
     words_and_frequencies.sort(key=lambda tup: tup[1], reverse=True)
