@@ -181,6 +181,7 @@ class S2SA(EncDecModel):
                  emb_matrix=None):
         super(S2SA, self).__init__(vocab2id=vocab2id, max_dec_len=max_dec_len, beam_width=beam_width, eps=eps)
 
+        self.method = "mle_train"
         self.id2vocab = id2vocab
         self.emotion_vocab = {'pad': 0, '认同': 1, '不认同': 2, '开心': 3, '伤心': 4, '惊讶': 5, '好奇': 6, '中立': 7}
         self.hidden_size = hidden_size
@@ -204,7 +205,7 @@ class S2SA(EncDecModel):
         self.attn_linear = nn.Linear(self.hidden_size * 3, self.hidden_size)
         self.attention = MultiheadAttention(self.hidden_size, 4)
 
-        self.enc2dec = nn.Linear(2 * self.hidden_size, self.hidden_size)
+        self.enc2dec = nn.Linear(4 * self.hidden_size, self.hidden_size)
         self.dec = BBCDecoder(embedding_size, hidden_size, len(vocab2id), num_layers=1, dropout=0.5,
                               emb_matrix=emb_matrix)
         self.gen = nn.Linear(self.hidden_size, len(vocab2id))
@@ -221,7 +222,8 @@ class S2SA(EncDecModel):
         c_enc_output, c_state = gru_forward(self.c_enc, c_words, c_lengths)
         b_enc_output, b_state = gru_forward(self.b_enc, b_words, b_lengths)
 
-        KL_Loss = F.kl_div(c_state.softmax(dim=-1).log(), b_state.softmax(dim=-1), reduction='sum')
+        if self.method == 'mle_train':
+            KL_Loss = F.kl_div(c_state.softmax(dim=-1).log(), b_state.softmax(dim=-1), reduction='sum')
 
         g_mask = data['goal'].ne(0).detach()
         g_words = self.c_embedding_dropout(self.c_embedding(data['goal']))
@@ -235,10 +237,12 @@ class S2SA(EncDecModel):
         for i in range(knowledge_num):
             temp_mask = k_mask[:, i, :]
             t_length.append(temp_mask.sum(dim=1).detach().unsqueeze(0))
+        t_length_temp = torch.cat(t_length, dim=0)
         t_length = torch.cat(t_length, dim=0)
         knowledge = knowledge.transpose(0, 2)
         hidden_knowledge = None
         knowledge_output = None
+        attn_knowledge = None
         for i in range(knowledge_num):
             knowledge_n = knowledge[:, i, :, :].transpose(0, 1)
             k_lengths = t_length[i, :]
@@ -248,16 +252,21 @@ class S2SA(EncDecModel):
             knowledge_output_t, hidden_knowledge_t = gru_forward(self.k_enc, knowledge_n, k_lengths)
             if i == 0:
                 hidden_knowledge = hidden_knowledge_t
+                attn_knowledge = hidden_knowledge_t[:, 0, :].unsqueeze(1)
                 knowledge_output = knowledge_output_t.unsqueeze(0)
             else:
                 hidden_knowledge = torch.cat((hidden_knowledge, hidden_knowledge_t), dim=1)
+                attn_knowledge = torch.cat((attn_knowledge, hidden_knowledge_t[:, 0, :].unsqueeze(1)), dim=1)
                 knowledge_output = torch.cat((knowledge_output, knowledge_output_t.unsqueeze(0)), dim=0)
 
         emotion = data['emotion']
         emotion_mask = data['emotion'].ne(0).detach()
         next_emo = data['next_emotion']
         emotion_class_hidden = torch.cat((c_state, hidden_knowledge), 1)
-        e, Loss_e, e_hidden = self.Emo_Class(emotion_class_hidden, emotion, emotion_mask, next_emotion=next_emo, train=True)
+        if self.method == 'mle_train':
+            e, Loss_e, e_hidden = self.Emo_Class(emotion_class_hidden, emotion, emotion_mask, next_emotion=next_emo, train=True)
+        else:
+            e, e_hidden = self.Emo_Class(emotion_class_hidden, emotion, emotion_mask, next_emotion=next_emo, train=False)
         pre_e = e.argmax(dim=-1)  # batch_size * 1
         x = pre_e.cpu().squeeze(0).numpy()
         y = next_emo.cpu().squeeze(0).numpy()
@@ -267,31 +276,33 @@ class S2SA(EncDecModel):
                 count += 1
 
         hidden_sum = torch.cat((c_state, e_hidden.transpose(0, 1), g_state), dim=2)
-        att_hidden = self.attn_linear(hidden_sum)
-        knowledge_mask = torch.logical_not(k_mask.transpose(0, 1).bool())
-
-        attn, attn_weights = self.attention(att_hidden, hidden_knowledge, hidden_knowledge, key_padding_mask=knowledge_mask, need_weights=True)
+        att_hidden = self.attn_linear(hidden_sum)[:, 0, :].unsqueeze(1)
+        knowledge_mask = torch.logical_not(t_length_temp.ne(0).detach())
+        attn, attn_weights = self.attention(att_hidden.transpose(0, 1), attn_knowledge.transpose(0, 1), attn_knowledge.transpose(0, 1), key_padding_mask=knowledge_mask, need_weights=True)
         # 1 * batch * hidden & 1 * batch * knowledge_num
         sel_knowledge_idx = attn_weights.argmax(dim=-1).squeeze(0)  # batch_size
         sel_knowledge = None  # 1 * batch_size * hidden
-        sel_knowledge_input = None  # batch * len
-        sel_knowledge_encode = None  # batch * len * hidden
+        # sel_knowledge_input = None  # batch * len
+        # sel_knowledge_encode = None  # batch * len * hidden
         for i in range(batch_size):
             if i == 0:
-                sel_knowledge = hidden_knowledge[sel_knowledge_idx[i], i, :].unsqueeze(0).unsqueeze(1)
-                sel_knowledge_input = knowledge[:, sel_knowledge_idx[i], i].unsqueeze(0)
-                sel_knowledge_encode = knowledge_output[sel_knowledge_idx[i], :, i, :].unsqueeze(0)
+                sel_knowledge = hidden_knowledge[i, sel_knowledge_idx[i]*2:sel_knowledge_idx[i]*2+2, :].unsqueeze(0)
+                # sel_knowledge_input = knowledge[:, sel_knowledge_idx[i], i].unsqueeze(0)
+                # sel_knowledge_encode = knowledge_output[sel_knowledge_idx[i], i, :, :].unsqueeze(0)
             else:
-                sel_knowledge = torch.cat((sel_knowledge, hidden_knowledge[sel_knowledge_idx[i], i, :].unsqueeze(0).unsqueeze(1)), dim=1)
-                sel_knowledge_input = torch.cat((sel_knowledge_input, knowledge[:, sel_knowledge_idx[i], i].unsqueeze(0)), dim=0)
-                sel_knowledge_encode = torch.cat((sel_knowledge_encode, knowledge_output[sel_knowledge_idx[i], :, i, :].unsqueeze(0)), dim=0)
+                sel_knowledge = torch.cat((sel_knowledge, hidden_knowledge[i, sel_knowledge_idx[i]*2:sel_knowledge_idx[i]*2+2, :].unsqueeze(0)), dim=0)
+                # sel_knowledge_input = torch.cat((sel_knowledge_input, knowledge[:, sel_knowledge_idx[i], i].unsqueeze(0)), dim=0)
+                # sel_knowledge_encode = torch.cat((sel_knowledge_encode, knowledge_output[sel_knowledge_idx[i], i, :, :].unsqueeze(0)), dim=0)
 
         decoder_hidden = torch.cat((hidden_sum, sel_knowledge), dim=2)
 
-        return (c_enc_output, decoder_hidden), KL_Loss, Loss_e
+        if self.method == 'mle_train':
+            return (c_enc_output, decoder_hidden), KL_Loss, Loss_e
+        else:
+            return c_enc_output, decoder_hidden
 
     def init_decoder_states(self, data, encode_output):
-        c_state = encode_output[1]
+        c_state = encode_output[1][:, 0, :]
         batch_size = encode_output[0].size(0)
 
         return self.enc2dec(c_state.contiguous().view(batch_size, -1)).view(batch_size, 1, -1)
@@ -323,6 +334,7 @@ class S2SA(EncDecModel):
         return loss.unsqueeze(0)
 
     def forward(self, data, method='mle_train'):
+        self.method = method
         if method == 'mle_train':
             return self.mle_train(data)
         elif method == 'test':
