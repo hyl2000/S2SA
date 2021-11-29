@@ -14,7 +14,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(cudaid)
 base_output_path = 'output/'
 
 embedding_size = 300
-hidden_size = 512
+hidden_size = 256
 knowledge_len = 300
 min_vocab_freq = 50
 
