@@ -42,7 +42,7 @@ def decode_to_end(model, data, vocab2id, max_target_length=None, schedule_rate=1
         max_target_length = tgt.size(1)
 
     if encode_outputs is None:
-        encode_outputs, KL_loss, Emotion_loss = model.encode(data)
+        encode_outputs, KL_loss, Emotion_loss, count = model.encode(data)
     if init_decoder_states is None:
         init_decoder_states = model.init_decoder_states(data, encode_outputs)
 
@@ -80,7 +80,7 @@ def decode_to_end(model, data, vocab2id, max_target_length=None, schedule_rate=1
 
     # all_gen_outputs = torch.cat(all_gen_outputs, dim=0).transpose(0, 1).contiguous()
 
-    return encode_outputs, init_decoder_states, all_decode_outputs, all_gen_outputs, KL_loss, Emotion_loss
+    return encode_outputs, init_decoder_states, all_decode_outputs, all_gen_outputs, KL_loss, Emotion_loss, count
 
 
 def randomk(gen_output, k=5, PAD=None, BOS=None, UNK=None):

@@ -297,7 +297,7 @@ class S2SA(EncDecModel):
         decoder_hidden = torch.cat((hidden_sum, sel_knowledge), dim=2)
 
         if self.method == 'mle_train':
-            return (c_enc_output, decoder_hidden), KL_Loss, Loss_e
+            return (c_enc_output, decoder_hidden), KL_Loss, Loss_e, count
         else:
             return c_enc_output, decoder_hidden
 
@@ -326,12 +326,12 @@ class S2SA(EncDecModel):
         return to_sentence(batch_indices, self.id2vocab)
 
     def mle_train(self, data):
-        encode_output, init_decoder_state, all_decode_output, all_gen_output, KL_loss, Emotion_loss = \
+        encode_output, init_decoder_state, all_decode_output, all_gen_output, KL_loss, Emotion_loss, count = \
             decode_to_end(self, data, self.vocab2id, tgt=data['response'])
         gen_output = torch.cat([p.unsqueeze(1) for p in all_gen_output], dim=1)
         loss = F.cross_entropy(gen_output.view(-1, gen_output.size(-1)), data['response'].view(-1), ignore_index=0)
         loss = loss.unsqueeze(0) * 0.7 + Emotion_loss * 0.2 + KL_loss * 0.1
-        return loss.unsqueeze(0)
+        return loss.unsqueeze(0), count
 
     def forward(self, data, method='mle_train'):
         self.method = method

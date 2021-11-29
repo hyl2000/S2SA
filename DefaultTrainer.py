@@ -42,7 +42,7 @@ class DefaultTrainer(object):
 
     def train_batch(self, epoch, data, method, optimizer):
         optimizer.zero_grad()
-        loss = self.model(data, method=method)
+        loss, count = self.model(data, method=method)
 
         if isinstance(loss, tuple) or isinstance(loss, list):
             closs = [l.mean().cpu().item() for l in loss]
@@ -56,7 +56,7 @@ class DefaultTrainer(object):
 
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 2)
         optimizer.step()
-        return closs
+        return closs, count
 
     def serialize(self, epoch, output_path):
         if self.local_rank != 0:
@@ -72,6 +72,7 @@ class DefaultTrainer(object):
                                                    shuffle=True)
         start_time = time.time()
         count_batch = 0
+        count_num = 0
         for j, data in enumerate(train_loader, 0):
             if torch.cuda.is_available():
                 data_cuda = dict()
@@ -83,11 +84,13 @@ class DefaultTrainer(object):
                 data = data_cuda
             count_batch += 1
 
-            bloss = self.train_batch(epoch, data, method=method, optimizer=optimizer)
+            bloss, count = self.train_batch(epoch, data, method=method, optimizer=optimizer)
+            count_num += count
+            emo_acc = count_num/(count_batch * batch_size)
 
             if j >= 0 and j % 100 == 0:
                 elapsed_time = time.time() - start_time
-                print('Method', method, 'Epoch', epoch, 'Batch ', count_batch, 'Loss ', bloss, 'Time ', elapsed_time)
+                print('Method', method, 'Epoch', epoch, 'Batch ', count_batch, 'Loss ', bloss, 'Emo_acc ', emo_acc, 'Time ', elapsed_time)
                 sys.stdout.flush()
             del bloss
 

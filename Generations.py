@@ -73,7 +73,7 @@ def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_sta
     batch_size=data['id'].size(0)
 
     if encode_outputs is None:
-        encode_outputs= model.encode(data)
+        encode_outputs = model.encode(data)
 
     if init_decoder_states is None:
         decoder_states = model.init_decoder_states(data, encode_outputs)
