@@ -262,7 +262,7 @@ class S2SA(EncDecModel):
         emotion = data['emotion']
         emotion_mask = data['emotion'].ne(0).detach()
         next_emo = data['next_emotion']
-        emotion_class_hidden = torch.cat((c_state, hidden_knowledge), 1)
+        emotion_class_hidden = torch.cat((c_state, g_state, hidden_knowledge), 1)
         if self.method == 'mle_train':
             e, Loss_e, e_hidden = self.Emo_Class(emotion_class_hidden, emotion, emotion_mask, next_emotion=next_emo, train=True)
         else:
