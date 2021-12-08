@@ -1,5 +1,6 @@
 from Constants import *
 from torch.nn.init import *
+import torch.nn.functional as F
 import pickle
 # import bcolz
 import torch.nn as nn
@@ -8,6 +9,8 @@ import random
 import time
 import codecs
 from torch.distributions.categorical import *
+from torch_geometric.data import Data
+from torch_scatter import scatter_add
 
 
 def get_ms():
@@ -393,3 +396,120 @@ def load_embedding(src_vocab2id, file):
         if word in src_vocab2id:
             matrix[src_vocab2id[word]] = model[word]
     return matrix
+
+
+def read_triplets(file_path, entity2id, relation2id):
+    triplets = []
+
+    with open(file_path) as f:
+        for line in f:
+            head, relation, tail = line.strip().split('\t')
+            triplets.append((entity2id[head], relation2id[relation], entity2id[tail]))
+
+    return np.array(triplets)
+
+
+def sample_edge_uniform(n_triples, sample_size):
+    """Sample edges uniformly from all the edges."""
+    all_edges = np.arange(n_triples)
+    return np.random.choice(all_edges, sample_size, replace=False)
+
+
+def negative_sampling(pos_samples, num_entity, negative_rate):
+    size_of_batch = len(pos_samples)
+    num_to_generate = size_of_batch * negative_rate
+    neg_samples = np.tile(pos_samples, (negative_rate, 1))
+    labels = np.zeros(size_of_batch * (negative_rate + 1), dtype=np.float32)
+    labels[: size_of_batch] = 1
+    values = np.random.choice(num_entity, size=num_to_generate)
+    choices = np.random.uniform(size=num_to_generate)
+    subj = choices > 0.5
+    obj = choices <= 0.5
+    neg_samples[subj, 0] = values[subj]
+    neg_samples[obj, 2] = values[obj]
+
+    return np.concatenate((pos_samples, neg_samples)), labels
+
+
+def edge_normalization(edge_type, edge_index, num_entity, num_relation):
+    '''
+        Edge normalization trick
+        - one_hot: (num_edge, num_relation)
+        - deg: (num_node, num_relation)
+        - index: (num_edge)
+        - deg[edge_index[0]]: (num_edge, num_relation)
+        - edge_norm: (num_edge)
+    '''
+    one_hot = F.one_hot(edge_type, num_classes=2 * num_relation).to(torch.float)
+    deg = scatter_add(one_hot, edge_index[0], dim=0, dim_size=num_entity)
+    index = edge_type + torch.arange(len(edge_index[0])) * (2 * num_relation)
+    edge_norm = 1 / deg[edge_index[0]].view(-1)[index]
+
+    return edge_norm
+
+
+def generate_sampled_graph_and_labels(triplets, sample_size, split_size, num_entity, num_rels, negative_rate):
+    """
+        Get training graph and signals
+        First perform edge neighborhood sampling on graph, then perform negative
+        sampling to generate negative samples
+    """
+
+    edges = sample_edge_uniform(len(triplets), sample_size)
+
+    # Select sampled edges
+    edges = triplets[edges]
+    src, rel, dst = edges.transpose()
+    uniq_entity, edges = np.unique((src, dst), return_inverse=True)
+    src, dst = np.reshape(edges, (2, -1))
+    relabeled_edges = np.stack((src, rel, dst)).transpose()
+
+    # Negative sampling
+    samples, labels = negative_sampling(relabeled_edges, len(uniq_entity), negative_rate)
+
+    # further split graph, only half of the edges will be used as graph
+    # structure, while the rest half is used as unseen positive samples
+    split_size = int(sample_size * split_size)
+    graph_split_ids = np.random.choice(np.arange(sample_size),
+                                       size=split_size, replace=False)
+
+    src = torch.tensor(src[graph_split_ids], dtype=torch.long).contiguous()
+    dst = torch.tensor(dst[graph_split_ids], dtype=torch.long).contiguous()
+    rel = torch.tensor(rel[graph_split_ids], dtype=torch.long).contiguous()
+
+    # Create bi-directional graph
+    src, dst = torch.cat((src, dst)), torch.cat((dst, src))
+    rel = torch.cat((rel, rel + num_rels))
+
+    edge_index = torch.stack((src, dst))
+    edge_type = rel
+
+    data = Data(edge_index=edge_index)
+    data.entity = torch.from_numpy(uniq_entity)
+    data.edge_type = edge_type
+    data.edge_norm = edge_normalization(edge_type, edge_index, len(uniq_entity), num_rels)
+    data.samples = torch.from_numpy(samples)
+    data.labels = torch.from_numpy(labels)
+
+    return data
+
+
+def build_test_graph(num_nodes, num_rels, triplets):
+    src, rel, dst = triplets.transpose()
+
+    src = torch.from_numpy(src)
+    rel = torch.from_numpy(rel)
+    dst = torch.from_numpy(dst)
+
+    src, dst = torch.cat((src, dst)), torch.cat((dst, src))
+    rel = torch.cat((rel, rel + num_rels))
+
+    edge_index = torch.stack((src, dst))
+    edge_type = rel
+
+    data = Data(edge_index=edge_index)
+    data.entity = torch.from_numpy(np.arange(num_nodes))
+    data.edge_type = edge_type
+    data.edge_norm = edge_normalization(edge_type, edge_index, num_nodes, num_rels)
+
+    return data

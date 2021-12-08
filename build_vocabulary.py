@@ -31,13 +31,14 @@ def tokenize(s):
     return tokens
 
 
-def build_vocabulary(corpus_file, vocab_file,
-                     vocab_size=30004, min_frequency=0,
+def build_vocabulary(corpus_file, vocab_file, entites_file, relations_file, vocab_size=30004, min_frequency=0,
                      min_len=1, max_len=500):
     """
     build words dict
     """
     counter = Counter()
+    entites_counter = Counter()
+    relations_counter = Counter()
     for line in open(corpus_file, 'r', encoding='utf-8'):
         session = json.loads(line.strip(), encoding="utf-8")
         src = ' '.join(session['history'])
@@ -60,14 +61,17 @@ def build_vocabulary(corpus_file, vocab_file,
             goal_full.append(g_type)
 
         knowledge = session['knowledge']
-        knowledge_full = []
+        entites_vocab = []
+        relations_vocab = []
         for k in knowledge:
             a, b, c = k
-            knowledge_full.append(a)
-            knowledge_full.append(b)
-            knowledge_full.append(c)
+            entites_vocab.append(a)
+            relations_vocab.append(b)
+            entites_vocab.append(c)
 
-        counter.update(src + tgt + goal_full + knowledge_full)
+        counter.update(src + tgt + goal_full)
+        entites_counter.update(entites_vocab)
+        relations_counter.update(relations_vocab)
 
     words_and_frequencies = sorted(counter.items(), key=lambda tup: tup[0])
     words_and_frequencies.sort(key=lambda tup: tup[1], reverse=True)
@@ -81,13 +85,37 @@ def build_vocabulary(corpus_file, vocab_file,
 
     fout.close()
 
+    entites_frequencies = sorted(entites_counter.items(), key=lambda tup: tup[0])
+    entites_frequencies.sort(key=lambda tup: tup[1], reverse=True)
+    entites_frequencies = entites_frequencies[:vocab_size]
+
+    fout = open(entites_file, 'w', encoding='utf-8')
+    for word, frequency in entites_frequencies:
+        if frequency < min_frequency:
+            break
+        fout.write(word + '\n')
+
+    fout.close()
+
+    relations_frequencies = sorted(relations_counter.items(), key=lambda tup: tup[0])
+    relations_frequencies.sort(key=lambda tup: tup[1], reverse=True)
+    relations_frequencies = relations_frequencies[:vocab_size]
+
+    fout = open(relations_file, 'w', encoding='utf-8')
+    for word, frequency in relations_frequencies:
+        if frequency < min_frequency:
+            break
+        fout.write(word + '\n')
+
+    fout.close()
+
 
 def main():
     """
     main
     """
 
-    build_vocabulary('./data/sample.train.txt', './data/vocab.txt')
+    build_vocabulary('./data/sample.train.txt', './data/vocab.txt', './data/entities.txt', './data/relations.txt')
 
 
 if __name__ == '__main__':

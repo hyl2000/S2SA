@@ -1,6 +1,7 @@
 from EncDecModel import *
 from BilinearAttention import *
 from EmoClassification import *
+from RGCN import *
 import torch.nn.functional as F
 from torch.nn import Parameter
 import torch
@@ -199,7 +200,8 @@ class S2SA(EncDecModel):
 
         self.c_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
         self.b_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
-        self.k_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
+        # self.k_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
+        self.k_enc = RGCN(len(entity2id), len(relation2id), num_bases=args.n_bases, dropout=0.5)
         self.g_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
 
         self.attn_linear = nn.Linear(self.hidden_size * 3, self.hidden_size)
