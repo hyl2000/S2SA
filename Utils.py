@@ -45,7 +45,7 @@ def decode_to_end(model, data, vocab2id, max_target_length=None, schedule_rate=1
         max_target_length = tgt.size(1)
 
     if encode_outputs is None:
-        encode_outputs, KL_loss, Emotion_loss, count = model.encode(data)
+        encode_outputs, KL_loss, Emotion_loss, graph_loss, count = model.encode(data)
     if init_decoder_states is None:
         init_decoder_states = model.init_decoder_states(data, encode_outputs)
 
@@ -83,7 +83,7 @@ def decode_to_end(model, data, vocab2id, max_target_length=None, schedule_rate=1
 
     # all_gen_outputs = torch.cat(all_gen_outputs, dim=0).transpose(0, 1).contiguous()
 
-    return encode_outputs, init_decoder_states, all_decode_outputs, all_gen_outputs, KL_loss, Emotion_loss, count
+    return encode_outputs, init_decoder_states, all_decode_outputs, all_gen_outputs, KL_loss, Emotion_loss, graph_loss, count
 
 
 def randomk(gen_output, k=5, PAD=None, BOS=None, UNK=None):
@@ -364,9 +364,11 @@ def concat_data(datalist):
     return data
 
 
-def load_vocab(vocab_file, t=0):
+def load_vocab(vocab_file, entities_file, relations_file, t=0):
     thisvocab2id = dict({PAD_WORD: 0, BOS_WORD: 1, UNK_WORD: 2, EOS_WORD: 3, SEP_WORD: 4, CLS_WORD: 5, MASK_WORD: 6})
     thisid2vocab = dict({0: PAD_WORD, 1: BOS_WORD, 2: UNK_WORD, 3: EOS_WORD, 4: SEP_WORD, 5: CLS_WORD, 6: MASK_WORD})
+    entity2id = dict()
+    relation2id = dict()
 
     with codecs.open(vocab_file, encoding='utf-8') as f:
         for line in f:
@@ -378,9 +380,29 @@ def load_vocab(vocab_file, t=0):
             thisvocab2id[name[0]] = id
             thisid2vocab[id] = name
 
-    print('item size: ', len(thisvocab2id))
+    with codecs.open(entities_file, encoding='utf-8') as f:
+        for line in f:
+            try:
+                name = line.strip('\n').strip('\r').split('\t')
+            except Exception:
+                continue
+            id = len(entity2id)
+            entity2id[name[0]] = id
 
-    return thisvocab2id, thisid2vocab
+    with codecs.open(relations_file, encoding='utf-8') as f:
+        for line in f:
+            try:
+                name = line.strip('\n').strip('\r').split('\t')
+            except Exception:
+                continue
+            id = len(relation2id)
+            relation2id[name[0]] = id
+
+    print('vocab item size: ', len(thisvocab2id))
+    print('entity item size: ', len(entity2id))
+    print('relation item size: ', len(relation2id))
+
+    return thisvocab2id, thisid2vocab, entity2id, relation2id
 
 
 def load_embedding(src_vocab2id, file):
@@ -458,7 +480,7 @@ def generate_sampled_graph_and_labels(triplets, sample_size, split_size, num_ent
     edges = sample_edge_uniform(len(triplets), sample_size)
 
     # Select sampled edges
-    edges = triplets[edges]
+    edges = np.array(triplets)[edges]
     src, rel, dst = edges.transpose()
     uniq_entity, edges = np.unique((src, dst), return_inverse=True)
     src, dst = np.reshape(edges, (2, -1))
@@ -485,11 +507,13 @@ def generate_sampled_graph_and_labels(triplets, sample_size, split_size, num_ent
     edge_type = rel
 
     data = Data(edge_index=edge_index)
-    data.entity = torch.from_numpy(uniq_entity)
+    data.entity = torch.from_numpy(uniq_entity).long()
     data.edge_type = edge_type
     data.edge_norm = edge_normalization(edge_type, edge_index, len(uniq_entity), num_rels)
-    data.samples = torch.from_numpy(samples)
-    data.labels = torch.from_numpy(labels)
+    data.samples = torch.from_numpy(samples).long()
+    data.labels = torch.from_numpy(labels).long()
+    if torch.cuda.is_available():
+        data = data.cuda()
 
     return data
 

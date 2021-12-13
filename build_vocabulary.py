@@ -115,7 +115,7 @@ def main():
     main
     """
 
-    build_vocabulary('./data/sample.train.txt', './data/vocab.txt', './data/entities.txt', './data/relations.txt')
+    build_vocabulary('./data/sample.xtrain.txt', './data/vocab.txt', './data/entities.txt', './data/relations.txt')
 
 
 if __name__ == '__main__':

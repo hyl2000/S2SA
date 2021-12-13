@@ -178,12 +178,14 @@ class BBCDecoder(nn.Module):
 
 
 class S2SA(EncDecModel):
-    def __init__(self, embedding_size, hidden_size, vocab2id, id2vocab, max_dec_len=120, beam_width=1, eps=1e-10,
-                 emb_matrix=None):
+    def __init__(self, embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, max_dec_len=120,
+                 beam_width=1, eps=1e-10, emb_matrix=None):
         super(S2SA, self).__init__(vocab2id=vocab2id, max_dec_len=max_dec_len, beam_width=beam_width, eps=eps)
 
         self.method = "mle_train"
         self.id2vocab = id2vocab
+        self.entity2id = entity2id
+        self.relation2id = relation2id
         self.emotion_vocab = {'pad': 0, '认同': 1, '不认同': 2, '开心': 3, '伤心': 4, '惊讶': 5, '好奇': 6, '中立': 7}
         self.hidden_size = hidden_size
         self.beam_width = beam_width
@@ -201,7 +203,7 @@ class S2SA(EncDecModel):
         self.c_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
         self.b_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
         # self.k_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
-        self.k_enc = RGCN(len(entity2id), len(relation2id), num_bases=args.n_bases, dropout=0.5)
+        self.k_enc = RGCN(len(self.entity2id), len(self.relation2id), num_bases=4, dropout=0.5)
         self.g_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
 
         self.attn_linear = nn.Linear(self.hidden_size * 3, self.hidden_size)
@@ -218,6 +220,7 @@ class S2SA(EncDecModel):
 
         c_words = self.c_embedding_dropout(self.c_embedding(data['context']))
         b_words = self.c_embedding_dropout(self.c_embedding(data['reverse']))
+        batch_size, _, _ = c_words.size()
 
         c_lengths = c_mask.sum(dim=1).detach()
         b_lengths = b_mask.sum(dim=1).detach()
@@ -232,6 +235,18 @@ class S2SA(EncDecModel):
         g_lengths = g_mask.sum(dim=1).detach()
         g_enc_output, g_state = gru_forward(self.g_enc, g_words, g_lengths)
 
+        train_data_full = data['knowledge']
+        knowledge = []
+        graph_loss = 0
+        for i in range(batch_size):
+            train_data = train_data_full[i]
+            entity_embedding = self.k_enc(train_data.entity, train_data.edge_index, train_data.edge_type, train_data.edge_norm)
+            knowledge.append(entity_embedding.unsqueeze(0))
+            graph_loss += self.k_enc.score_loss(entity_embedding, train_data.samples, train_data.labels.float()) + 1e-2 * self.k_enc.reg_loss(entity_embedding)
+        graph_loss = graph_loss / batch_size
+        # knowledge = torch.cat(knowledge, dim=0)
+
+        '''
         knowledge = self.c_embedding_dropout(self.c_embedding(data['knowledge']))
         batch_size, knowledge_num, _, _ = knowledge.size()
         k_mask = data['knowledge'].ne(0).detach()
@@ -260,6 +275,7 @@ class S2SA(EncDecModel):
                 hidden_knowledge = torch.cat((hidden_knowledge, hidden_knowledge_t), dim=1)
                 attn_knowledge = torch.cat((attn_knowledge, hidden_knowledge_t[:, 0, :].unsqueeze(1)), dim=1)
                 knowledge_output = torch.cat((knowledge_output, knowledge_output_t.unsqueeze(0)), dim=0)
+        '''
 
         emotion = data['emotion']
         emotion_mask = data['emotion'].ne(0).detach()
@@ -278,6 +294,7 @@ class S2SA(EncDecModel):
                 count += 1
 
         hidden_sum = torch.cat((c_state, e_hidden.transpose(0, 1), g_state), dim=2)
+        '''
         att_hidden = self.attn_linear(hidden_sum)[:, 0, :].unsqueeze(1)
         knowledge_mask = torch.logical_not(t_length_temp.ne(0).detach())
         attn, attn_weights = self.attention(att_hidden.transpose(0, 1), attn_knowledge.transpose(0, 1), attn_knowledge.transpose(0, 1), key_padding_mask=knowledge_mask, need_weights=True)
@@ -295,11 +312,12 @@ class S2SA(EncDecModel):
                 sel_knowledge = torch.cat((sel_knowledge, hidden_knowledge[i, sel_knowledge_idx[i]*2:sel_knowledge_idx[i]*2+2, :].unsqueeze(0)), dim=0)
                 # sel_knowledge_input = torch.cat((sel_knowledge_input, knowledge[:, sel_knowledge_idx[i], i].unsqueeze(0)), dim=0)
                 # sel_knowledge_encode = torch.cat((sel_knowledge_encode, knowledge_output[sel_knowledge_idx[i], i, :, :].unsqueeze(0)), dim=0)
+        '''
 
         decoder_hidden = torch.cat((hidden_sum, sel_knowledge), dim=2)
 
         if self.method == 'mle_train':
-            return (c_enc_output, decoder_hidden), KL_Loss, Loss_e, count
+            return (c_enc_output, decoder_hidden), KL_Loss, Loss_e, graph_loss, count
         else:
             return c_enc_output, decoder_hidden
 
@@ -328,11 +346,11 @@ class S2SA(EncDecModel):
         return to_sentence(batch_indices, self.id2vocab)
 
     def mle_train(self, data):
-        encode_output, init_decoder_state, all_decode_output, all_gen_output, KL_loss, Emotion_loss, count = \
+        encode_output, init_decoder_state, all_decode_output, all_gen_output, KL_loss, Emotion_loss, graph_loss, count =\
             decode_to_end(self, data, self.vocab2id, tgt=data['response'])
         gen_output = torch.cat([p.unsqueeze(1) for p in all_gen_output], dim=1)
         loss = F.cross_entropy(gen_output.view(-1, gen_output.size(-1)), data['response'].view(-1), ignore_index=0)
-        loss = loss.unsqueeze(0) * 0.7 + Emotion_loss * 0.2 + KL_loss * 0.1
+        loss = loss.unsqueeze(0) * 0.7 + Emotion_loss * 0.2 + graph_loss * 0.2 + KL_loss * 0.1
         return loss.unsqueeze(0), count
 
     def forward(self, data, method='mle_train'):

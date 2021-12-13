@@ -40,12 +40,12 @@ def train(args):
     dataset = 'sample'
     data_path = 'data/'
     print('go...')
-    vocab2id, id2vocab = load_vocab('data/vocab.txt', t=min_vocab_freq)
+    vocab2id, id2vocab, entity2id, relation2id = load_vocab('data/vocab.txt', 'data/entities.txt', 'data/relations.txt', t=min_vocab_freq)
     print('load_vocab done')
 
-    train_dataset = Dataset(data_path + dataset + '.'+"train.txt", vocab2id, knowledge_len)
+    train_dataset = Dataset(data_path + dataset + '.'+"xtrain.txt", vocab2id, entity2id, relation2id, batch_size, knowledge_len)
     print('build data done')
-    model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, max_dec_len=70, beam_width=1)
+    model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, max_dec_len=70, beam_width=1)
     print('build model done')
     init_params(model, escape='embedding')
     print('init_params done')
@@ -77,11 +77,12 @@ def test(args, beam_width):
 
     dataset = 'sample'
     data_path = 'data/'
-    vocab2id, id2vocab = load_vocab('data/vocab.txt', t=min_vocab_freq)
+    vocab2id, id2vocab, entity2id, relation2id = load_vocab('data/vocab.txt', 'data/entities.txt', 'data/relations.txt',
+                                                            t=min_vocab_freq)
 
-    test_dataset = Dataset(data_path + dataset + '.'+"test.txt", vocab2id, knowledge_len)
+    test_dataset = Dataset(data_path + dataset + '.'+"xtest.txt", vocab2id, entity2id, relation2id, batch_size, knowledge_len)
 
-    model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, max_dec_len=70, beam_width=beam_width)
+    model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, max_dec_len=70, beam_width=beam_width)
     trainer = DefaultTrainer(model, None)
     trainer.test('test', test_dataset, collate_fn, batch_size, 0, output_path=output_path)
 
@@ -90,7 +91,7 @@ def test(args, beam_width):
         file = output_path + 'model/' + str(i) + '.pkl'
 
         if os.path.exists(file):
-            model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, max_dec_len=70, beam_width=beam_width)
+            model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, max_dec_len=70, beam_width=beam_width)
             model.load_state_dict(torch.load(file))
             trainer = DefaultTrainer(model, None)
             trainer.test('test', test_dataset, collate_fn, batch_size, 100 + i, output_path=output_path)

@@ -15,18 +15,22 @@ def pad_knowledge(knowledge):
 
 
 class Dataset(Dataset):
-    def __init__(self, path, vocab2id, max_length=200, n=1E10):
+    def __init__(self, path, vocab2id, entity2id, relation2id, batch_size, max_length=200, n=1E10):
         super(Dataset, self).__init__()
 
         self.emotion_vocab = {'pad': 0, '认同': 1, '不认同': 2, '开心': 3, '伤心': 4, '惊讶': 5, '好奇': 6, '中立': 7}
 
         self.max_length = max_length
         self.path = path
+        self.batch_size = batch_size
 
         self.response = []
         self.context = []
 
         self.vocab2id = vocab2id
+        self.entity2id = entity2id
+        self.relation2id = relation2id
+        # self.knowledge_data = None
         self.n = n
 
         self.sample_tensor = []
@@ -98,6 +102,7 @@ class Dataset(Dataset):
                 [self.vocab2id.get(w) if w in self.vocab2id else self.vocab2id[UNK_WORD] for w in goal_full],
                 requires_grad=False).long()
 
+            '''
             knowledge = sample['knowledge']
             knowledge_full = []
             for k in knowledge:
@@ -109,11 +114,20 @@ class Dataset(Dataset):
                 knowledge_tensor.append([self.vocab2id.get(w) if w in self.vocab2id else self.vocab2id[UNK_WORD] for w in temp])
             knowledge_tensor = pad_knowledge(knowledge_tensor)
             knowledge_tensor = torch.tensor(knowledge_tensor, requires_grad=False).long()
+            '''
+            knowledge = sample['knowledge']
+            train_triplets = []
+            for k in knowledge:
+                a, b, c = k
+                train_triplets.append((self.entity2id[a], self.relation2id[b], self.entity2id[c]))
+
+            knowledge_data = generate_sampled_graph_and_labels(train_triplets, len(train_triplets), 0.5,
+                                                                    len(self.entity2id), len(self.relation2id), 1)
 
             emotion_tensor = torch.tensor([self.emotion_vocab.get(w) for w in sample['emotion'][:-1]], requires_grad=False).long()
             next_emotion = torch.tensor([self.emotion_vocab.get(sample['emotion'][-1])], requires_grad=False).long()
 
-            self.sample_tensor.append([id_tensor, context_tensor, response_tensor, reverse_tensor, goal_tensor, knowledge_tensor, emotion_tensor, next_emotion])
+            self.sample_tensor.append([id_tensor, context_tensor, response_tensor, reverse_tensor, goal_tensor, knowledge_data, emotion_tensor, next_emotion])
             self.len = idx + 1
             if idx >= self.n:
                 break
@@ -128,12 +142,13 @@ class Dataset(Dataset):
 
 def collate_fn(data):
     id, context, response, reverse, goal, knowledge, emotion, next_emo = zip(*data)
+    # id, context, response, reverse, goal, emotion, next_emo = zip(*data)
 
     return {'id': torch.cat(id),
             'context': pad_sequence(context, batch_first=True),
             'response': pad_sequence(response, batch_first=True),
             'reverse': pad_sequence(reverse, batch_first=True),
             'goal': pad_sequence(goal, batch_first=True),
-            'knowledge': pad_sequence(knowledge, batch_first=True),
+            'knowledge': knowledge,
             'emotion': pad_sequence(emotion, batch_first=True),
             'next_emotion': pad_sequence(next_emo, batch_first=True)}
