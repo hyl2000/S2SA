@@ -4,6 +4,7 @@ from EmoClassification import *
 from RGCN import *
 import torch.nn.functional as F
 from torch.nn import Parameter
+from torch.nn.utils.rnn import pad_sequence
 import torch
 
 
@@ -206,6 +207,7 @@ class S2SA(EncDecModel):
         self.k_enc = RGCN(len(self.entity2id), len(self.relation2id), num_bases=4, dropout=0.5)
         self.g_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
 
+        self.knowledge_linear = nn.Linear(100, self.hidden_size)
         self.attn_linear = nn.Linear(self.hidden_size * 3, self.hidden_size)
         self.attention = MultiheadAttention(self.hidden_size, 4)
 
@@ -241,46 +243,17 @@ class S2SA(EncDecModel):
         for i in range(batch_size):
             train_data = train_data_full[i]
             entity_embedding = self.k_enc(train_data.entity, train_data.edge_index, train_data.edge_type, train_data.edge_norm)
-            knowledge.append(entity_embedding.unsqueeze(0))
+            knowledge.append(entity_embedding)
             graph_loss += self.k_enc.score_loss(entity_embedding, train_data.samples, train_data.labels.float()) + 1e-2 * self.k_enc.reg_loss(entity_embedding)
         graph_loss = graph_loss / batch_size
-        # knowledge = torch.cat(knowledge, dim=0)
-
-        '''
-        knowledge = self.c_embedding_dropout(self.c_embedding(data['knowledge']))
-        batch_size, knowledge_num, _, _ = knowledge.size()
-        k_mask = data['knowledge'].ne(0).detach()
-        t_length = []
-        for i in range(knowledge_num):
-            temp_mask = k_mask[:, i, :]
-            t_length.append(temp_mask.sum(dim=1).detach().unsqueeze(0))
-        t_length_temp = torch.cat(t_length, dim=0)
-        t_length = torch.cat(t_length, dim=0)
-        knowledge = knowledge.transpose(0, 2)
-        hidden_knowledge = None
-        knowledge_output = None
-        attn_knowledge = None
-        for i in range(knowledge_num):
-            knowledge_n = knowledge[:, i, :, :].transpose(0, 1)
-            k_lengths = t_length[i, :]
-            for num in range(batch_size):
-                if k_lengths[num] == 0:
-                    k_lengths[num] = 1
-            knowledge_output_t, hidden_knowledge_t = gru_forward(self.k_enc, knowledge_n, k_lengths)
-            if i == 0:
-                hidden_knowledge = hidden_knowledge_t
-                attn_knowledge = hidden_knowledge_t[:, 0, :].unsqueeze(1)
-                knowledge_output = knowledge_output_t.unsqueeze(0)
-            else:
-                hidden_knowledge = torch.cat((hidden_knowledge, hidden_knowledge_t), dim=1)
-                attn_knowledge = torch.cat((attn_knowledge, hidden_knowledge_t[:, 0, :].unsqueeze(1)), dim=1)
-                knowledge_output = torch.cat((knowledge_output, knowledge_output_t.unsqueeze(0)), dim=0)
-        '''
+        knowledge = pad_sequence(knowledge, batch_first=False, padding_value=0)  # entity num * batch_size * 100(channel)
+        knowledge_mask = torch.logical_not(knowledge[:, :, 0].ne(0).detach())
+        knowledge = self.knowledge_linear(knowledge.transpose(0, 1))
 
         emotion = data['emotion']
         emotion_mask = data['emotion'].ne(0).detach()
         next_emo = data['next_emotion']
-        emotion_class_hidden = torch.cat((c_state, g_state, hidden_knowledge), 1)
+        emotion_class_hidden = torch.cat((c_state, g_state, knowledge), 1)
         if self.method == 'mle_train':
             e, Loss_e, e_hidden = self.Emo_Class(emotion_class_hidden, emotion, emotion_mask, next_emotion=next_emo, train=True)
         else:
@@ -294,10 +267,9 @@ class S2SA(EncDecModel):
                 count += 1
 
         hidden_sum = torch.cat((c_state, e_hidden.transpose(0, 1), g_state), dim=2)
-        '''
+
         att_hidden = self.attn_linear(hidden_sum)[:, 0, :].unsqueeze(1)
-        knowledge_mask = torch.logical_not(t_length_temp.ne(0).detach())
-        attn, attn_weights = self.attention(att_hidden.transpose(0, 1), attn_knowledge.transpose(0, 1), attn_knowledge.transpose(0, 1), key_padding_mask=knowledge_mask, need_weights=True)
+        attn, attn_weights = self.attention(att_hidden.transpose(0, 1), knowledge.transpose(0, 1), knowledge.transpose(0, 1), key_padding_mask=knowledge_mask, need_weights=True)
         # 1 * batch * hidden & 1 * batch * knowledge_num
         sel_knowledge_idx = attn_weights.argmax(dim=-1).squeeze(0)  # batch_size
         sel_knowledge = None  # 1 * batch_size * hidden
@@ -305,16 +277,11 @@ class S2SA(EncDecModel):
         # sel_knowledge_encode = None  # batch * len * hidden
         for i in range(batch_size):
             if i == 0:
-                sel_knowledge = hidden_knowledge[i, sel_knowledge_idx[i]*2:sel_knowledge_idx[i]*2+2, :].unsqueeze(0)
-                # sel_knowledge_input = knowledge[:, sel_knowledge_idx[i], i].unsqueeze(0)
-                # sel_knowledge_encode = knowledge_output[sel_knowledge_idx[i], i, :, :].unsqueeze(0)
+                sel_knowledge = knowledge[i, sel_knowledge_idx[i], :].unsqueeze(0).unsqueeze(1)
             else:
-                sel_knowledge = torch.cat((sel_knowledge, hidden_knowledge[i, sel_knowledge_idx[i]*2:sel_knowledge_idx[i]*2+2, :].unsqueeze(0)), dim=0)
-                # sel_knowledge_input = torch.cat((sel_knowledge_input, knowledge[:, sel_knowledge_idx[i], i].unsqueeze(0)), dim=0)
-                # sel_knowledge_encode = torch.cat((sel_knowledge_encode, knowledge_output[sel_knowledge_idx[i], i, :, :].unsqueeze(0)), dim=0)
-        '''
+                sel_knowledge = torch.cat((sel_knowledge, knowledge[i, sel_knowledge_idx[i], :].unsqueeze(0).unsqueeze(1)), dim=0)
 
-        decoder_hidden = torch.cat((hidden_sum, sel_knowledge), dim=2)
+        decoder_hidden = torch.cat((hidden_sum[:, 0, :].unsqueeze(1), sel_knowledge), dim=2)
 
         if self.method == 'mle_train':
             return (c_enc_output, decoder_hidden), KL_Loss, Loss_e, graph_loss, count
