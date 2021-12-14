@@ -77,7 +77,7 @@ def test(args, beam_width):
 
     dataset = 'sample'
     data_path = 'data/'
-    vocab2id, id2vocab, entity2id, relation2id = load_vocab('data/vocab.txt', 'data/test_entities.txt', 'data/test_relations.txt',
+    vocab2id, id2vocab, entity2id, relation2id = load_vocab('data/vocab.txt', 'data/entities.txt', 'data/relations.txt',
                                                             t=min_vocab_freq)
 
     test_dataset = Dataset(data_path + dataset + '.'+"xtest.txt", vocab2id, entity2id, relation2id, batch_size, knowledge_len)
