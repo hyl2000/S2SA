@@ -281,6 +281,10 @@ class S2SA(EncDecModel):
             else:
                 sel_knowledge = torch.cat((sel_knowledge, knowledge[i, sel_knowledge_idx[i], :].unsqueeze(0).unsqueeze(1)), dim=0)
 
+        if self.method == 'mle_train':
+            e, Loss_ke, e_hidden = self.Emo_Class(sel_knowledge, emotion, emotion_mask, next_emotion=next_emo, train=True)
+            Loss_e = Loss_e + Loss_ke
+
         decoder_hidden = torch.cat((hidden_sum[:, 0, :].unsqueeze(1), sel_knowledge), dim=2)
 
         if self.method == 'mle_train':
