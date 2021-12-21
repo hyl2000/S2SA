@@ -290,7 +290,7 @@ class S2SA(EncDecModel):
         if self.method == 'mle_train':
             return (c_enc_output, decoder_hidden), KL_Loss, Loss_e, graph_loss, count
         else:
-            return c_enc_output, decoder_hidden
+            return (c_enc_output, decoder_hidden), count
 
     def init_decoder_states(self, data, encode_output):
         c_state = encode_output[1][:, 0, :]

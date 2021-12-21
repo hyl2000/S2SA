@@ -82,9 +82,9 @@ def test(args, beam_width):
 
     test_dataset = Dataset(data_path + dataset + '.'+"xtest.txt", vocab2id, entity2id, relation2id, batch_size, knowledge_len)
 
-    model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, max_dec_len=70, beam_width=beam_width)
-    trainer = DefaultTrainer(model, None)
-    trainer.test('test', test_dataset, collate_fn, batch_size, 0, output_path=output_path)
+    # model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, max_dec_len=70, beam_width=beam_width)
+    # trainer = DefaultTrainer(model, None)
+    # trainer.test('test', test_dataset, collate_fn, batch_size, 0, output_path=output_path)
 
     for i in range(20):
         print('epoch', i)

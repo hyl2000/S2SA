@@ -107,6 +107,8 @@ class DefaultTrainer(object):
 
             systems = []
             ref_path = None
+            count_total = 0
+            total = 0
             for k, data in enumerate(test_loader, 0):
                 if torch.cuda.is_available():
                     data_cuda = dict()
@@ -117,12 +119,14 @@ class DefaultTrainer(object):
                             data_cuda[key] = value
                     data = data_cuda
 
-                indices = self.eval_model(data, method=method)
+                indices, count = self.eval_model(data, method=method)
+                count_total += count
                 sents = self.eval_model.to_sentence(data, indices)
 
                 remove_duplicate(sents)
 
                 for i in range(len(data['id'])):
+                    total += 1
                     idx = data['id'][i].item()
                     systems.append(' '.join(sents[i]) + '\t' + dataset.response[idx][:-6])
 
@@ -135,6 +139,9 @@ class DefaultTrainer(object):
             for i in range(len(systems)):
                 file.write(systems[i] + os.linesep)
             file.close()
+
+            emo_acc = count_total / total
+            print('Emo_acc: ', emo_acc)
         return output_path
 
     def test(self, method, dataset, collate_fn, batch_size, epoch, output_path):

@@ -14,7 +14,7 @@ def sample(model, data, vocab2id, max_len=20, encode_outputs=None, init_decoder_
     batch_size = data['id'].size(0)
 
     if encode_outputs is None:
-        encode_outputs = model.encode(data)
+        encode_outputs, count = model.encode(data)
 
     if init_decoder_states is None:
         init_decoder_states = model.init_decoder_states(data, encode_outputs)
@@ -73,7 +73,7 @@ def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_sta
     batch_size=data['id'].size(0)
 
     if encode_outputs is None:
-        encode_outputs = model.encode(data)
+        encode_outputs, count = model.encode(data)
 
     if init_decoder_states is None:
         decoder_states = model.init_decoder_states(data, encode_outputs)
@@ -108,7 +108,7 @@ def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_sta
         decoder_input = model.generation_to_decoder_input(data, greedy_indice)
 
     greedy_indice=torch.cat(greedy_indices,dim=1)
-    return greedy_indice
+    return greedy_indice, count
 
 
 def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_decoder_states=None):
@@ -120,7 +120,7 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
     batch_size = data['id'].size(0)
 
     if encode_outputs is None:
-        encode_outputs = model.encode(data)
+        encode_outputs, count = model.encode(data)
 
     if init_decoder_states is None:
         decoder_states = model.init_decoder_states(data, encode_outputs)
@@ -192,7 +192,7 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
     # sents=[node.to_sequence_of_words()[1:-1] for node in outputs]
     indices=merge1D([new_tensor(node.to_sequence_of_values()[1:]) for node in outputs])
 
-    return indices
+    return indices, count
 
 
 class Node(object):
