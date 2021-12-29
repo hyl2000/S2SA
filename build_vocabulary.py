@@ -88,6 +88,21 @@ def build_vocabulary(corpus_file, vocab_file, entites_file, relations_file, voca
         entites_counter.update(entites_vocab)
         relations_counter.update(relations_vocab)
 
+    for line in open('./data/sample.xdev.txt', 'r', encoding='utf-8'):
+        session = json.loads(line.strip(), encoding="utf-8")
+
+        knowledge = session['knowledge']
+        entites_vocab = []
+        relations_vocab = []
+        for k in knowledge:
+            a, b, c = k
+            entites_vocab.append(a)
+            relations_vocab.append(b)
+            entites_vocab.append(c)
+
+        entites_counter.update(entites_vocab)
+        relations_counter.update(relations_vocab)
+
     words_and_frequencies = sorted(counter.items(), key=lambda tup: tup[0])
     words_and_frequencies.sort(key=lambda tup: tup[1], reverse=True)
     words_and_frequencies = words_and_frequencies[:vocab_size]

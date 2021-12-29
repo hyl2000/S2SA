@@ -237,6 +237,7 @@ class S2SA(EncDecModel):
         g_lengths = g_mask.sum(dim=1).detach()
         g_enc_output, g_state = gru_forward(self.g_enc, g_words, g_lengths)
 
+        '''
         train_data_full = data['knowledge']
         knowledge = []
         graph_loss = 0
@@ -246,6 +247,16 @@ class S2SA(EncDecModel):
             knowledge.append(entity_embedding)
             graph_loss += self.k_enc.score_loss(entity_embedding, train_data.samples, train_data.labels.float()) + 1e-2 * self.k_enc.reg_loss(entity_embedding)
         graph_loss = graph_loss / batch_size
+        knowledge = pad_sequence(knowledge, batch_first=False, padding_value=0)  # entity num * batch_size * 100(channel)
+        knowledge_mask = torch.logical_not(knowledge[:, :, 0].ne(0).detach())
+        knowledge = self.knowledge_linear(knowledge.transpose(0, 1))
+        '''
+        train_data_full = data['knowledge']
+        knowledge = []
+        for i in range(batch_size):
+            train_data = train_data_full[i]
+            entity_embedding = self.k_enc(train_data.entity, train_data.edge_index, train_data.edge_type, train_data.edge_norm)
+            knowledge.append(entity_embedding)
         knowledge = pad_sequence(knowledge, batch_first=False, padding_value=0)  # entity num * batch_size * 100(channel)
         knowledge_mask = torch.logical_not(knowledge[:, :, 0].ne(0).detach())
         knowledge = self.knowledge_linear(knowledge.transpose(0, 1))
@@ -288,7 +299,7 @@ class S2SA(EncDecModel):
         decoder_hidden = torch.cat((hidden_sum[:, 0, :].unsqueeze(1), sel_knowledge), dim=2)
 
         if self.method == 'mle_train':
-            return (c_enc_output, decoder_hidden), KL_Loss, Loss_e, graph_loss, count
+            return (c_enc_output, decoder_hidden), KL_Loss, Loss_e, count
         else:
             return (c_enc_output, decoder_hidden), count
 
@@ -317,11 +328,11 @@ class S2SA(EncDecModel):
         return to_sentence(batch_indices, self.id2vocab)
 
     def mle_train(self, data):
-        encode_output, init_decoder_state, all_decode_output, all_gen_output, KL_loss, Emotion_loss, graph_loss, count =\
+        encode_output, init_decoder_state, all_decode_output, all_gen_output, KL_loss, Emotion_loss, count =\
             decode_to_end(self, data, self.vocab2id, tgt=data['response'])
         gen_output = torch.cat([p.unsqueeze(1) for p in all_gen_output], dim=1)
         loss = F.cross_entropy(gen_output.view(-1, gen_output.size(-1)), data['response'].view(-1), ignore_index=0)
-        loss = loss.unsqueeze(0) * 0.7 + Emotion_loss * 0.2 + graph_loss * 0.2 + KL_loss * 0.1
+        loss = loss.unsqueeze(0) * 0.7 + Emotion_loss * 0.2 + KL_loss * 0.1
         return loss.unsqueeze(0), count
 
     def forward(self, data, method='mle_train'):

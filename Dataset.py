@@ -15,13 +15,14 @@ def pad_knowledge(knowledge):
 
 
 class Dataset(Dataset):
-    def __init__(self, path, vocab2id, entity2id, relation2id, batch_size, max_length=200, n=1E10):
+    def __init__(self, path, vocab2id, entity2id, relation2id, batch_size, valid_path=None, max_length=200, n=1E10):
         super(Dataset, self).__init__()
 
         self.emotion_vocab = {'pad': 0, '认同': 1, '不认同': 2, '开心': 3, '伤心': 4, '惊讶': 5, '好奇': 6, '中立': 7}
 
         self.max_length = max_length
         self.path = path
+        self.valid_path = valid_path
         self.batch_size = batch_size
 
         self.response = []
@@ -31,6 +32,10 @@ class Dataset(Dataset):
         self.entity2id = entity2id
         self.relation2id = relation2id
         # self.knowledge_data = None
+        self.GCN_train_sample = None
+        self.GCN_valid_sample = None
+        self.build_graph_data = None
+        self.all_triplets = None
         self.n = n
 
         self.sample_tensor = []
@@ -43,6 +48,7 @@ class Dataset(Dataset):
             for i, line in enumerate(f):
                 session = json.loads(line.strip(), encoding="utf-8")
                 self.samples.append(session)
+        all_knowledge = []
         for idx in range(len(self.samples)):
             sample = self.samples[idx]
             id_tensor = torch.tensor([idx]).long()
@@ -120,6 +126,7 @@ class Dataset(Dataset):
             for k in knowledge:
                 a, b, c = k
                 train_triplets.append((self.entity2id[a], self.relation2id[b], self.entity2id[c]))
+                all_knowledge.append((self.entity2id[a], self.relation2id[b], self.entity2id[c]))
 
             knowledge_data = generate_sampled_graph_and_labels(train_triplets, len(train_triplets), 0.5,
                                                                     len(self.entity2id), len(self.relation2id), 1)
@@ -131,6 +138,30 @@ class Dataset(Dataset):
             self.len = idx + 1
             if idx >= self.n:
                 break
+        random.shuffle(all_knowledge)
+        self.GCN_train_sample = generate_sampled_graph_and_labels(all_knowledge, len(all_knowledge), 0.5,
+                                                                  len(self.entity2id), len(self.relation2id), 1)
+        self.build_graph_data = np.array(all_knowledge)
+
+        dev_samples = []
+        with open(self.valid_path, 'r', encoding='utf-8') as f:
+            for i, line in enumerate(f):
+                session = json.loads(line.strip(), encoding="utf-8")
+                dev_samples.append(session)
+        dev_triplets = []
+        for idx in range(len(dev_samples)):
+            sample = dev_samples[idx]
+            knowledge = sample['knowledge']
+            for k in knowledge:
+                a, b, c = k
+                dev_triplets.append((self.entity2id[a], self.relation2id[b], self.entity2id[c]))
+
+        random.shuffle(dev_triplets)
+        self.GCN_valid_sample = generate_sampled_graph_and_labels(dev_triplets, len(dev_triplets), 0.5,
+                                                                  len(self.entity2id), len(self.relation2id), 1)
+
+        self.all_triplets = torch.LongTensor(np.concatenate((all_knowledge, dev_triplets)))
+
         print('data size: ', self.len)
 
     def __getitem__(self, index):
