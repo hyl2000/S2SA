@@ -508,11 +508,11 @@ def generate_sampled_graph_and_labels(triplets, sample_size, split_size, num_ent
     edge_type = rel
 
     data = Data(edge_index=edge_index)
-    data.entity = torch.from_numpy(uniq_entity).long()
-    data.edge_type = edge_type
+    data.entity = torch.from_numpy(uniq_entity).type(torch.LongTensor)
+    data.edge_type = edge_type.type(torch.LongTensor)
     data.edge_norm = edge_normalization(edge_type, edge_index, len(uniq_entity), num_rels)
-    data.samples = torch.from_numpy(samples).long()
-    data.labels = torch.from_numpy(labels).long()
+    data.samples = torch.from_numpy(samples).type(torch.LongTensor)
+    data.labels = torch.from_numpy(labels)
     if torch.cuda.is_available():
         data = data.cuda()
 
@@ -533,7 +533,7 @@ def build_test_graph(num_nodes, num_rels, triplets):
     edge_type = rel
 
     data = Data(edge_index=edge_index)
-    data.entity = torch.from_numpy(np.arange(num_nodes))
+    data.entity = torch.from_numpy(np.arange(num_nodes)).type(torch.LongTensor)
     data.edge_type = edge_type
     data.edge_norm = edge_normalization(edge_type, edge_index, num_nodes, num_rels)
 
@@ -570,7 +570,7 @@ def calc_mrr(embedding, w, test_triplets, all_triplets, hits=[]):
 
             delete_entity_index = all_triplets[delete_index, 2].view(-1).numpy()
             perturb_entity_index = np.array(list(set(np.arange(num_entity)) - set(delete_entity_index)))
-            perturb_entity_index = torch.from_numpy(perturb_entity_index)
+            perturb_entity_index = torch.from_numpy(perturb_entity_index).long()
             perturb_entity_index = torch.cat((perturb_entity_index, object_.view(-1)))
 
             emb_ar = embedding[subject] * w[relation]
@@ -597,7 +597,7 @@ def calc_mrr(embedding, w, test_triplets, all_triplets, hits=[]):
 
             delete_entity_index = all_triplets[delete_index, 0].view(-1).numpy()
             perturb_entity_index = np.array(list(set(np.arange(num_entity)) - set(delete_entity_index)))
-            perturb_entity_index = torch.from_numpy(perturb_entity_index)
+            perturb_entity_index = torch.from_numpy(perturb_entity_index).long()
             perturb_entity_index = torch.cat((perturb_entity_index, subject.view(-1)))
 
             emb_ar = embedding[object_] * w[relation]

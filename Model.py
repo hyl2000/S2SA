@@ -179,7 +179,7 @@ class BBCDecoder(nn.Module):
 
 
 class S2SA(EncDecModel):
-    def __init__(self, embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, max_dec_len=120,
+    def __init__(self, embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, GCN, max_dec_len=120,
                  beam_width=1, eps=1e-10, emb_matrix=None):
         super(S2SA, self).__init__(vocab2id=vocab2id, max_dec_len=max_dec_len, beam_width=beam_width, eps=eps)
 
@@ -204,7 +204,8 @@ class S2SA(EncDecModel):
         self.c_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
         self.b_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
         # self.k_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
-        self.k_enc = RGCN(len(self.entity2id), len(self.relation2id), num_bases=4, dropout=0.5)
+        # self.k_enc = RGCN(len(self.entity2id), len(self.relation2id), num_bases=4, dropout=0.5)
+        self.k_enc = GCN
         self.g_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
 
         self.knowledge_linear = nn.Linear(100, self.hidden_size)

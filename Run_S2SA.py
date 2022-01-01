@@ -26,6 +26,7 @@ def train_GCN(model, train_data, test_graph, valid_triplets, all_triplets):
     reg_ratio = 1e-2
     best_mrr = 0
     grad_norm = 1.0
+    n_epochs = 1000
     evaluate_every = 500
 
     print(model)
@@ -33,7 +34,7 @@ def train_GCN(model, train_data, test_graph, valid_triplets, all_triplets):
     if use_cuda:
         model.cuda()
 
-    for epoch in trange(1, (20 + 1), desc='Epochs', position=0):
+    for epoch in trange(1, (n_epochs + 1), desc='Epochs', position=0):
 
         model.train()
         optimizer.zero_grad()
@@ -106,7 +107,7 @@ def train(args):
     checkpoint = torch.load('./output/model/best_mrr_model.pth')
     GCN.load_state_dict(checkpoint['state_dict'])
     print('GCN training finished')
-    model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, max_dec_len=70, beam_width=1)
+    model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, GCN, max_dec_len=70, beam_width=1)
     print('build model done')
     init_params(model, escape='embedding')
     print('init_params done')

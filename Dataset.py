@@ -138,6 +138,7 @@ class Dataset(Dataset):
             self.len = idx + 1
             if idx >= self.n:
                 break
+        all_knowledge = list(set(all_knowledge))
         random.shuffle(all_knowledge)
         self.GCN_train_sample = generate_sampled_graph_and_labels(all_knowledge, len(all_knowledge), 0.5,
                                                                   len(self.entity2id), len(self.relation2id), 1)
@@ -156,9 +157,11 @@ class Dataset(Dataset):
                 a, b, c = k
                 dev_triplets.append((self.entity2id[a], self.relation2id[b], self.entity2id[c]))
 
+        dev_triplets = list(set(dev_triplets))
         random.shuffle(dev_triplets)
-        self.GCN_valid_sample = generate_sampled_graph_and_labels(dev_triplets, len(dev_triplets), 0.5,
-                                                                  len(self.entity2id), len(self.relation2id), 1)
+        # self.GCN_valid_sample = generate_sampled_graph_and_labels(dev_triplets, len(dev_triplets), 0.5,
+        #                                                           len(self.entity2id), len(self.relation2id), 1)
+        self.GCN_valid_sample = torch.LongTensor(dev_triplets)
 
         self.all_triplets = torch.LongTensor(np.concatenate((all_knowledge, dev_triplets)))
 
