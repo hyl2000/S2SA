@@ -144,26 +144,27 @@ class Dataset(Dataset):
                                                                   len(self.entity2id), len(self.relation2id), 1)
         self.build_graph_data = np.array(all_knowledge)
 
-        dev_samples = []
-        with open(self.valid_path, 'r', encoding='utf-8') as f:
-            for i, line in enumerate(f):
-                session = json.loads(line.strip(), encoding="utf-8")
-                dev_samples.append(session)
-        dev_triplets = []
-        for idx in range(len(dev_samples)):
-            sample = dev_samples[idx]
-            knowledge = sample['knowledge']
-            for k in knowledge:
-                a, b, c = k
-                dev_triplets.append((self.entity2id[a], self.relation2id[b], self.entity2id[c]))
+        if self.valid_path is not None:
+            dev_samples = []
+            with open(self.valid_path, 'r', encoding='utf-8') as f:
+                for i, line in enumerate(f):
+                    session = json.loads(line.strip(), encoding="utf-8")
+                    dev_samples.append(session)
+            dev_triplets = []
+            for idx in range(len(dev_samples)):
+                sample = dev_samples[idx]
+                knowledge = sample['knowledge']
+                for k in knowledge:
+                    a, b, c = k
+                    dev_triplets.append((self.entity2id[a], self.relation2id[b], self.entity2id[c]))
 
-        dev_triplets = list(set(dev_triplets))
-        random.shuffle(dev_triplets)
-        # self.GCN_valid_sample = generate_sampled_graph_and_labels(dev_triplets, len(dev_triplets), 0.5,
-        #                                                           len(self.entity2id), len(self.relation2id), 1)
-        self.GCN_valid_sample = torch.LongTensor(dev_triplets)
+            dev_triplets = list(set(dev_triplets))
+            random.shuffle(dev_triplets)
+            # self.GCN_valid_sample = generate_sampled_graph_and_labels(dev_triplets, len(dev_triplets), 0.5,
+            #                                                           len(self.entity2id), len(self.relation2id), 1)
+            self.GCN_valid_sample = torch.LongTensor(dev_triplets)
 
-        self.all_triplets = torch.LongTensor(np.concatenate((all_knowledge, dev_triplets)))
+            self.all_triplets = torch.LongTensor(np.concatenate((all_knowledge, dev_triplets)))
 
         print('data size: ', self.len)
 

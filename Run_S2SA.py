@@ -142,7 +142,11 @@ def test(args, beam_width):
     vocab2id, id2vocab, entity2id, relation2id = load_vocab('data/vocab.txt', 'data/entities.txt', 'data/relations.txt',
                                                             t=min_vocab_freq)
 
-    test_dataset = Dataset(data_path + dataset + '.'+"xtest.txt", vocab2id, entity2id, relation2id, batch_size, knowledge_len)
+    test_dataset = Dataset(data_path + dataset + '.'+"xtest.txt", vocab2id, entity2id, relation2id, batch_size, max_length=knowledge_len)
+
+    GCN = RGCN(len(entity2id), len(relation2id), num_bases=4, dropout=0.5)
+    checkpoint = torch.load('./output/model/best_mrr_model.pth')
+    GCN.load_state_dict(checkpoint['state_dict'])
 
     # model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, max_dec_len=70, beam_width=beam_width)
     # trainer = DefaultTrainer(model, None)
@@ -153,7 +157,7 @@ def test(args, beam_width):
         file = output_path + 'model/' + str(i) + '.pkl'
 
         if os.path.exists(file):
-            model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, max_dec_len=70, beam_width=beam_width)
+            model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, GCN, max_dec_len=70, beam_width=beam_width)
             model.load_state_dict(torch.load(file))
             trainer = DefaultTrainer(model, None)
             trainer.test('test', test_dataset, collate_fn, batch_size, 100 + i, output_path=output_path)
