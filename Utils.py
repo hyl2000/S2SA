@@ -46,7 +46,7 @@ def decode_to_end(model, data, vocab2id, max_target_length=None, schedule_rate=1
         max_target_length = tgt.size(1)
 
     if encode_outputs is None:
-        encode_outputs, KL_loss, Emotion_loss, count = model.encode(data)
+        encode_outputs, KL_loss, Emotion_loss, count, knowledge_mask = model.encode(data)
     if init_decoder_states is None:
         init_decoder_states = model.init_decoder_states(data, encode_outputs)
 
@@ -62,7 +62,7 @@ def decode_to_end(model, data, vocab2id, max_target_length=None, schedule_rate=1
     for t in range(max_target_length):
         # decoder_outputs, decoder_states,...
         decode_outputs = model.decode(
-            data, decoder_input, encode_outputs, all_decode_outputs[-1]
+            data, decoder_input, encode_outputs, all_decode_outputs[-1], knowledge_mask
         )
 
         output = model.generate(data, encode_outputs, decode_outputs, softmax=softmax)

@@ -16,7 +16,7 @@ class EncDecModel(nn.Module):
     def init_decoder_states(self, data, encode_output):
         return None
 
-    def decode(self, data, previous_word, encode_outputs, previous_deocde_outputs):
+    def decode(self, data, previous_word, encode_outputs, previous_deocde_outputs, knowledge_mask):
         raise NotImplementedError
 
     def generate(self, data, encode_outputs, decode_outputs, softmax=False):
