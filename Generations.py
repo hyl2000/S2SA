@@ -14,7 +14,7 @@ def sample(model, data, vocab2id, max_len=20, encode_outputs=None, init_decoder_
     batch_size = data['id'].size(0)
 
     if encode_outputs is None:
-        encode_outputs, count = model.encode(data)
+        encode_outputs, count, knowledge_mask = model.encode(data)
 
     if init_decoder_states is None:
         init_decoder_states = model.init_decoder_states(data, encode_outputs)
@@ -31,7 +31,7 @@ def sample(model, data, vocab2id, max_len=20, encode_outputs=None, init_decoder_
     # ranp=random.randint(0, max_len-1)
     for t in range(max_len):
         decode_outputs = model.decode(
-            data, decoder_input, encode_outputs, all_decode_outputs[-1]
+            data, decoder_input, encode_outputs, all_decode_outputs[-1], knowledge_mask
         )
 
         gen_output = model.generate(data, encode_outputs, decode_outputs, softmax=True)
@@ -73,7 +73,7 @@ def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_sta
     batch_size=data['id'].size(0)
 
     if encode_outputs is None:
-        encode_outputs, count = model.encode(data)
+        encode_outputs, count, knowledge_mask = model.encode(data)
 
     if init_decoder_states is None:
         decoder_states = model.init_decoder_states(data, encode_outputs)
@@ -87,7 +87,7 @@ def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_sta
     greedy_end = new_tensor([0] * batch_size).long() == 1
     for t in range(max_len):
         decode_outputs = model.decode(
-            data, decoder_input, encode_outputs, all_decode_outputs[-1]
+            data, decoder_input, encode_outputs, all_decode_outputs[-1], knowledge_mask
         )
 
         gen_output=model.generate(data, encode_outputs, decode_outputs, softmax=True)
@@ -120,7 +120,7 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
     batch_size = data['id'].size(0)
 
     if encode_outputs is None:
-        encode_outputs, count = model.encode(data)
+        encode_outputs, count, knowledge_mask = model.encode(data)
 
     if init_decoder_states is None:
         decoder_states = model.init_decoder_states(data, encode_outputs)
@@ -135,7 +135,9 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
     next_fringe = []
     results = dict()
     for i in range(batch_size):
-        next_fringe += [Node(parent=None, state=get_data(i, decode_outputs), word=BOS_WORD, value=BOS, cost=0.0, encode_outputs=get_data(i, encode_outputs), data=get_data(i, data), batch_id=i)]
+        next_fringe += [Node(parent=None, state=get_data(i, decode_outputs), word=BOS_WORD, value=BOS, cost=0.0,
+                             encode_outputs=get_data(i, encode_outputs), data=get_data(i, data),
+                             knowledge_mask=knowledge_mask[:, i].unsqueeze(1), batch_id=i)]
         results[i] = []
 
     for l in range(max_len+1):
@@ -153,11 +155,13 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
         decode_outputs=concat_data([n.state for n in fringe])
         encode_outputs = (concat_data([n.encode_outputs for n in fringe])["output"], encoder_state)
 
-        decoder_input= new_tensor([n.value for n in fringe], requires_grad=False)
+        decoder_input = new_tensor([n.value for n in fringe], requires_grad=False)
         decoder_input = model.generation_to_decoder_input(data, decoder_input)
 
+        knowledge_mask = torch.cat([n.knowledge_mask for n in fringe], dim=1)
+
         decode_outputs = model.decode(
-            data, decoder_input, encode_outputs, decode_outputs
+            data, decoder_input, encode_outputs, decode_outputs, knowledge_mask
         )
 
         gen_output = model.generate(data, encode_outputs, decode_outputs, softmax=True)
@@ -176,7 +180,9 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
 
                 n_new = Node(parent=n, state=get_data(i, decode_outputs), word=None, value=ids[i,j].item(), cost=loss,
                              encode_outputs=n.encode_outputs,
-                             data=n.data, batch_id=n.batch_id)
+                             data=n.data,
+                             knowledge_mask=n.knowledge_mask,
+                             batch_id=n.batch_id)
 
                 next_fringe_dict[n_new.batch_id].append(n_new)
 
@@ -196,7 +202,7 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
 
 
 class Node(object):
-    def __init__(self, parent, state, word, value, cost, encode_outputs, data, batch_id=None):
+    def __init__(self, parent, state, word, value, cost, encode_outputs, data, knowledge_mask, batch_id=None):
         super(Node, self).__init__()
         self.word=word
         self.value = value
@@ -208,6 +214,7 @@ class Node(object):
         self._sequence = None
         self.batch_id=batch_id
         self.data=data
+        self.knowledge_mask = knowledge_mask
 
     def to_sequence(self):
         # Return sequence of nodes from root to current node.

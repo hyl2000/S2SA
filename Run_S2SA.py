@@ -26,8 +26,8 @@ def train_GCN(model, train_data, test_graph, valid_triplets, all_triplets):
     reg_ratio = 1e-2
     best_mrr = 0
     grad_norm = 1.0
-    n_epochs = 1000
-    evaluate_every = 500
+    n_epochs = 6000
+    evaluate_every = 100
 
     print(model)
 
