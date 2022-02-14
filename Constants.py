@@ -1,10 +1,8 @@
-PAD_WORD = '[PAD]'
-BOS_WORD = '[BOS]'
-UNK_WORD = '[UNK]'
-EOS_WORD = '[EOS]'
-SEP_WORD = '[SEP]'
-CLS_WORD = '[CLS]'
-MASK_WORD = '[MASK]'
-
-
-
+PAD_WORD = '<pad>'
+BOS_WORD = 'bos'
+UNK_WORD = '<unk>'
+EOS_WORD = 'eos'
+SEP_WORD = '<sep>'
+CLS_WORD = '<cls>'
+MASK_WORD = '<mask>'
+model_name = './mt5-small'

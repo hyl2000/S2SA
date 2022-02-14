@@ -6,10 +6,9 @@ from Constants import *
 
 
 def sample(model, data, vocab2id, max_len=20, encode_outputs=None, init_decoder_states=None):
-    BOS=vocab2id[BOS_WORD]
-    EOS=vocab2id[EOS_WORD]
-    UNK=vocab2id[UNK_WORD]
-    PAD=vocab2id[PAD_WORD]
+    EOS = 0
+    UNK = 2
+    PAD = 0
 
     batch_size = data['id'].size(0)
 
@@ -19,7 +18,8 @@ def sample(model, data, vocab2id, max_len=20, encode_outputs=None, init_decoder_
     if init_decoder_states is None:
         init_decoder_states = model.init_decoder_states(data, encode_outputs)
 
-    init_decoder_input = new_tensor([BOS] * batch_size, requires_grad=False)
+    # init_decoder_input = new_tensor([BOS] * batch_size, requires_grad=False)  # TODO
+    init_decoder_input = new_tensor([2] * batch_size, requires_grad=False)
 
     indices = list()
     end = new_tensor([0] * batch_size).long() == 1
@@ -65,10 +65,9 @@ def sample(model, data, vocab2id, max_len=20, encode_outputs=None, init_decoder_
 
 
 def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_states=None):
-    BOS = vocab2id[BOS_WORD]
-    EOS = vocab2id[EOS_WORD]
-    UNK = vocab2id[UNK_WORD]
-    PAD = vocab2id[PAD_WORD]
+    EOS = 0
+    UNK = 2
+    PAD = 0
 
     batch_size=data['id'].size(0)
 
@@ -80,7 +79,8 @@ def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_sta
     else:
         decoder_states=init_decoder_states
 
-    decoder_input = new_tensor([BOS] * batch_size, requires_grad=False)
+    # decoder_input = new_tensor([BOS] * batch_size, requires_grad=False)  # TODO
+    decoder_input = new_tensor([2] * batch_size, requires_grad=False)
     all_decode_outputs = [dict({'state': decoder_states})]
 
     greedy_indices=list()
@@ -112,10 +112,7 @@ def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_sta
 
 
 def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_decoder_states=None):
-    BOS = vocab2id[BOS_WORD]
-    EOS = vocab2id[EOS_WORD]
-    UNK = vocab2id[UNK_WORD]
-    PAD = vocab2id[PAD_WORD]
+    EOS = 0
 
     batch_size = data['id'].size(0)
 
@@ -135,7 +132,10 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
     next_fringe = []
     results = dict()
     for i in range(batch_size):
-        next_fringe += [Node(parent=None, state=get_data(i, decode_outputs), word=BOS_WORD, value=BOS, cost=0.0,
+        # next_fringe += [Node(parent=None, state=get_data(i, decode_outputs), word=BOS_WORD, value=BOS, cost=0.0,
+        #                      encode_outputs=get_data(i, encode_outputs), data=get_data(i, data),
+        #                      knowledge_mask=knowledge_mask[:, i].unsqueeze(1), batch_id=i)]  # TODO
+        next_fringe += [Node(parent=None, state=get_data(i, decode_outputs), word=UNK_WORD, value=2, cost=0.0,
                              encode_outputs=get_data(i, encode_outputs), data=get_data(i, data),
                              knowledge_mask=knowledge_mask[:, i].unsqueeze(1), batch_id=i)]
         results[i] = []
@@ -165,8 +165,11 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
         )
 
         gen_output = model.generate(data, encode_outputs, decode_outputs, softmax=True)
+        gen_output = gen_output.squeeze(1)
 
         probs, ids = model.to_word(data, gen_output, width)
+        softmax = nn.Softmax(dim=-1)
+        probs = softmax(probs)
 
         next_fringe_dict = dict()
         for i in range(batch_size):
@@ -193,7 +196,7 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
     outputs = []
     for i in range(batch_size):
         results[i].sort(key=lambda n: n.cum_cost / n.length)
-        outputs.append(results[i][0])# currently only select the first one
+        outputs.append(results[i][0])  # currently only select the first one
 
     # sents=[node.to_sequence_of_words()[1:-1] for node in outputs]
     indices=merge1D([new_tensor(node.to_sequence_of_values()[1:]) for node in outputs])

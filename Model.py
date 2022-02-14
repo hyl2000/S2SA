@@ -5,182 +5,61 @@ from RGCN import *
 import torch.nn.functional as F
 from torch.nn import Parameter
 from torch.nn.utils.rnn import pad_sequence
+from transformers import AdamW, Adafactor, T5Tokenizer, AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers.models.t5.modeling_t5 import T5Stack
+from transformers.models.t5.configuration_t5 import T5Config
+import copy
 import torch
 
 
-class MultiheadAttention(nn.Module):
-
-    def __init__(self, embed_dim, num_heads, dropout=0., weights_dropout=True):
-        super(MultiheadAttention, self).__init__()
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.dropout = dropout
-        self.head_dim = embed_dim // num_heads
-        assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
-        self.scaling = self.head_dim ** -0.5
-
-        self.in_proj_weight = Parameter(torch.Tensor(3 * embed_dim, embed_dim))
-        self.in_proj_bias = Parameter(torch.Tensor(3 * embed_dim))
-
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=True)
-        self.weights_dropout = weights_dropout
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        nn.init.normal_(self.in_proj_weight, std=0.02)
-        nn.init.normal_(self.out_proj.weight, std=0.02)
-        nn.init.constant_(self.in_proj_bias, 0.)
-        nn.init.constant_(self.out_proj.bias, 0.)
-
-    def forward(self, query, key, value, key_padding_mask=None, attn_mask=None, need_weights=False):
-        """ Input shape: Time x Batch x Channel
-            key_padding_mask: Time x batch
-            attn_mask:  tgt_len x src_len
-        """
-        qkv_same = query.data_ptr() == key.data_ptr() == value.data_ptr()
-        kv_same = key.data_ptr() == value.data_ptr()
-
-        tgt_len, bsz, embed_dim = query.size()
-        assert key.size() == value.size()
-
-        if qkv_same:
-            # self-attention
-            q, k, v = self.in_proj_qkv(query)
-        elif kv_same:
-            # encoder-decoder attention
-            q = self.in_proj_q(query)
-            k, v = self.in_proj_kv(key)
-        else:
-            q = self.in_proj_q(query)
-            k = self.in_proj_k(key)
-            v = self.in_proj_v(value)
-        q *= self.scaling
-
-        q = q.contiguous().view(tgt_len, bsz * self.num_heads, self.head_dim).transpose(0, 1)
-        k = k.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
-        v = v.contiguous().view(-1, bsz * self.num_heads, self.head_dim).transpose(0, 1)
-
-        src_len = k.size(1)
-        # k,v: bsz*heads x src_len x dim
-        # q: bsz*heads x tgt_len x dim
-
-        attn_weights = torch.bmm(q, k.transpose(1, 2))
-        # print(query)
-        assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
-
-        if attn_mask is not None:
-            attn_weights.masked_fill_(
-                attn_mask.unsqueeze(0),
-                float(-1e24)
-            )
-
-        if key_padding_mask is not None:
-            # don't attend to padding symbols
-            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
-            attn_weights.masked_fill_(
-                key_padding_mask.transpose(0, 1).unsqueeze(1).unsqueeze(2),
-                float(-1e24)
-            )
-            attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
-
-        attn_weights = F.softmax(attn_weights, dim=-1)
-
-        if self.weights_dropout:
-            attn_weights = F.dropout(attn_weights, p=self.dropout, training=self.training)
-
-        attn = torch.bmm(attn_weights, v)
-        if not self.weights_dropout:
-            attn = F.dropout(attn, p=self.dropout, training=self.training)
-
-        assert list(attn.size()) == [bsz * self.num_heads, tgt_len, self.head_dim]
-
-        attn = attn.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
-        attn = self.out_proj(attn)
-
-        if need_weights:
-            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
-
-            # attn_weights, _ = attn_weights.max(dim=1)
-            attn_weights = attn_weights[:, 0, :, :]
-            # attn_weights = attn_weights.mean(dim=1)
-            attn_weights = attn_weights.transpose(0, 1)
-        else:
-            attn_weights = None
-
-        return attn, attn_weights
-
-    def in_proj_qkv(self, query):
-        return self._in_proj(query).chunk(3, dim=-1)
-
-    def in_proj_kv(self, key):
-        return self._in_proj(key, start=self.embed_dim).chunk(2, dim=-1)
-
-    def in_proj_q(self, query):
-        return self._in_proj(query, end=self.embed_dim)
-
-    def in_proj_k(self, key):
-        return self._in_proj(key, start=self.embed_dim, end=2 * self.embed_dim)
-
-    def in_proj_v(self, value):
-        return self._in_proj(value, start=2 * self.embed_dim)
-
-    def _in_proj(self, input, start=0, end=None):
-        weight = self.in_proj_weight
-        bias = self.in_proj_bias
-        weight = weight[start:end, :]
-        if bias is not None:
-            bias = bias[start:end]
-        x = F.linear(input, weight, bias)
-        del weight
-        del bias
-        return x
+class Config(nn.Module):
+    def __init__(self):
+        super(Config, self).__init__()
+        self.vocab_size = None
+        self.hidden_size = None
+        self.pad_token_id = None
+        self.max_entity_embeddings = None
+        self.max_position_embeddings = None
+        self.max_triple_embeddings = None
+        self.layer_norm_eps = None
+        self.hidden_dropout_prob = None
 
 
-class BBCDecoder(nn.Module):
-    def __init__(self, embedding_size, hidden_size, vocab_size, emb_matrix=None, num_layers=4, dropout=0.5):
-        super(BBCDecoder, self).__init__()
+class KnowledgeEmbeddings(nn.Module):
+    """Construct the embeddings from word, position and token_type embeddings.
+    """
 
-        # Keep for reference
-        self.hidden_size = hidden_size
-        self.embedding_size = embedding_size
-        self.vocab_size = vocab_size
+    def __init__(self, config):
+        super(KnowledgeEmbeddings, self).__init__()
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id)
+        self.entity_embeddings = nn.Embedding(config.max_entity_embeddings, config.hidden_size)
+        self.triple_embeddings = nn.Embedding(config.max_triple_embeddings, config.hidden_size)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
 
-        if emb_matrix is None:
-            self.embedding = nn.Embedding(vocab_size, embedding_size, padding_idx=0)
-        else:
-            self.embedding = create_emb_layer(emb_matrix)
-        self.embedding_dropout = nn.Dropout(dropout)
+        # self.LayerNorm is not snake-cased to stick with TensorFlow model variable name and be able to load
+        # any TensorFlow checkpoint file
+        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        self.src_attn = BilinearAttention(
-            query_size=hidden_size, key_size=hidden_size, hidden_size=hidden_size
-        )
-        self.gru = nn.GRU(hidden_size + embedding_size, hidden_size, bidirectional=False,
-                          num_layers=num_layers)
+    def forward(self, input_ids, entity_ids, triple_ids, position_ids):
+        input_shape = input_ids.size()
 
-        self.readout = nn.Linear(embedding_size + hidden_size + hidden_size, hidden_size)
+        seq_length = input_shape[1]
 
-    def forward(self, tgt, state, src_output, src_mask=None):
-        embedded = self.embedding(tgt)
-        embedded = self.embedding_dropout(embedded)
+        inputs_embeds = self.word_embeddings(input_ids)
+        entity_embeddings = self.entity_embeddings(entity_ids)
+        triple_embeddings = self.triple_embeddings(triple_ids)
+        position_embeddings = self.position_embeddings(triple_ids)
 
-        src_context, src_attn = self.src_attn(state[:, -1].unsqueeze(1), src_output, src_output,
-                                              mask=src_mask.unsqueeze(1))
-        src_context = src_context.squeeze(1)
-        src_attn = src_attn.squeeze(1)
-
-        gru_input = torch.cat((embedded, src_context), dim=1)
-        gru_output, gru_state = self.gru(gru_input.unsqueeze(0), state.transpose(0, 1))
-        gru_state = gru_state.transpose(0, 1)
-
-        concat_output = torch.cat((embedded, gru_state[:, -1], src_context), dim=1)
-
-        feature_output = self.readout(concat_output)
-        return feature_output, [gru_state], [src_attn]
+        embeddings = inputs_embeds + entity_embeddings + triple_embeddings + position_embeddings
+        embeddings = self.LayerNorm(embeddings)
+        embeddings = self.dropout(embeddings)
+        return embeddings
 
 
 class S2SA(EncDecModel):
-    def __init__(self, embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, GCN, max_dec_len=120,
-                 beam_width=1, eps=1e-10, emb_matrix=None):
+    def __init__(self, embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, pretrain_model=None,
+                 max_dec_len=120, beam_width=1, eps=1e-12, emb_matrix=None):
         super(S2SA, self).__init__(vocab2id=vocab2id, max_dec_len=max_dec_len, beam_width=beam_width, eps=eps)
 
         self.method = "mle_train"
@@ -191,81 +70,65 @@ class S2SA(EncDecModel):
         self.hidden_size = hidden_size
         self.beam_width = beam_width
 
-        if emb_matrix is None:
-            self.c_embedding = nn.Embedding(len(vocab2id), embedding_size, padding_idx=0)
-        else:
-            self.c_embedding = create_emb_layer(emb_matrix)
-        self.b_embedding = self.c_embedding
-        self.c_embedding_dropout = nn.Dropout(0.5)
-        self.b_embedding_dropout = nn.Dropout(0.5)
-
         self.Emo_Class = Emo_Classfication(hidden_size, self.emotion_vocab, num_layers=1, bidirectional=True)
 
-        self.c_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
-        self.b_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
-        # self.k_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
-        # self.k_enc = RGCN(len(self.entity2id), len(self.relation2id), num_bases=4, dropout=0.5)
-        self.k_enc = GCN
-        self.g_enc = nn.GRU(embedding_size, hidden_size, num_layers=1, bidirectional=True, batch_first=True)
+        # config = T5Config()
+        config = pretrain_model.config
+        self.shared = nn.Embedding(config.vocab_size, config.d_model)
+        encoder_config = copy.deepcopy(config)
+        encoder_config.is_decoder = False
+        encoder_config.use_cache = False
+        encoder_config.is_encoder_decoder = False
+        knowledge_config = Config()
+        knowledge_config.vocab_size = config.vocab_size
+        knowledge_config.hidden_size = config.d_model
+        knowledge_config.pad_token_id = 0
+        knowledge_config.max_entity_embeddings = len(entity2id)
+        knowledge_config.max_position_embeddings = 1024
+        knowledge_config.max_triple_embeddings = len(relation2id)
+        knowledge_config.layer_norm_eps = eps
+        knowledge_config.hidden_dropout_prob = 0.1
+        self.knowledge_embedding = KnowledgeEmbeddings(knowledge_config)
+        self.c_enc = T5Stack(encoder_config, self.shared)
+        self.b_enc = T5Stack(encoder_config, self.shared)
+        self.g_enc = T5Stack(encoder_config, self.shared)
+        self.c_enc.load_state_dict(pretrain_model.get_encoder().state_dict())
+        self.b_enc.load_state_dict(pretrain_model.get_encoder().state_dict())
+        self.g_enc.load_state_dict(pretrain_model.get_encoder().state_dict())
+        self.k_enc = T5Stack(encoder_config, self.knowledge_embedding)
 
         self.knowledge_linear = nn.Linear(100, self.hidden_size)
-        self.attn_linear = nn.Linear(self.hidden_size * 3, self.hidden_size)
-        self.attention = MultiheadAttention(self.hidden_size, 4)
 
-        self.enc2dec = nn.Linear(3 * self.hidden_size, self.hidden_size)
-        self.dec = BBCDecoder(embedding_size, hidden_size, len(vocab2id), num_layers=1, dropout=0.5,
-                              emb_matrix=emb_matrix)
-        self.gen = nn.Linear(self.hidden_size, len(vocab2id))
+        self.enc2dec = nn.Linear(self.hidden_size, self.hidden_size)
+        self.dec = pretrain_model.get_decoder()
+        self.gen = nn.Linear(self.hidden_size, config.vocab_size)
 
     def encode(self, data):
         c_mask = data['context'].ne(0).detach()
         b_mask = data['reverse'].ne(0).detach()
 
-        c_words = self.c_embedding_dropout(self.c_embedding(data['context']))
-        b_words = self.c_embedding_dropout(self.c_embedding(data['reverse']))
-        batch_size, _, _ = c_words.size()
-
-        c_lengths = c_mask.sum(dim=1).detach()
-        b_lengths = b_mask.sum(dim=1).detach()
-        c_enc_output, c_state = gru_forward(self.c_enc, c_words, c_lengths)
-        b_enc_output, b_state = gru_forward(self.b_enc, b_words, b_lengths)
-
-        if self.method == 'mle_train':
-            KL_Loss = F.kl_div(c_state.softmax(dim=-1).log(), b_state.softmax(dim=-1), reduction='sum')
+        batch_size, _ = data['reverse'].size()
+        c_output = self.c_enc(input_ids=data['context'], attention_mask=c_mask)
+        c_enc_output = c_output.last_hidden_state  # last hidden: batch_size * length * hidden_size
 
         g_mask = data['goal'].ne(0).detach()
-        g_words = self.c_embedding_dropout(self.c_embedding(data['goal']))
-        g_lengths = g_mask.sum(dim=1).detach()
-        g_enc_output, g_state = gru_forward(self.g_enc, g_words, g_lengths)
+        g_output = self.g_enc(input_ids=data['goal'], attention_mask=g_mask)
+        g_state = g_output.last_hidden_state  # last hidden: batch_size * length * hidden_size
 
-        '''
-        train_data_full = data['knowledge']
-        knowledge = []
-        graph_loss = 0
-        for i in range(batch_size):
-            train_data = train_data_full[i]
-            entity_embedding = self.k_enc(train_data.entity, train_data.edge_index, train_data.edge_type, train_data.edge_norm)
-            knowledge.append(entity_embedding)
-            graph_loss += self.k_enc.score_loss(entity_embedding, train_data.samples, train_data.labels.float()) + 1e-2 * self.k_enc.reg_loss(entity_embedding)
-        graph_loss = graph_loss / batch_size
-        knowledge = pad_sequence(knowledge, batch_first=False, padding_value=0)  # entity num * batch_size * 100(channel)
-        knowledge_mask = torch.logical_not(knowledge[:, :, 0].ne(0).detach())
-        knowledge = self.knowledge_linear(knowledge.transpose(0, 1))
-        '''
-        train_data_full = data['knowledge']
-        knowledge = []
-        for i in range(batch_size):
-            train_data = train_data_full[i]
-            entity_embedding = self.k_enc(train_data.entity, train_data.edge_index, train_data.edge_type, train_data.edge_norm)
-            knowledge.append(entity_embedding)
-        knowledge = pad_sequence(knowledge, batch_first=False, padding_value=0)  # entity num * batch_size * 100(channel)
-        knowledge_mask = torch.logical_not(knowledge[:, :, 0].ne(0).detach())
-        knowledge = self.knowledge_linear(knowledge.transpose(0, 1))
+        knowledge = data['knowledge']
+        entity_ids = data['entity_ids']
+        triple_ids = data['triple_ids']
+        position_ids = data['position_ids']
+        knowledge_mask = torch.logical_not(knowledge.ne(0).detach())
+        knowlegde_emb = self.knowledge_embedding(knowledge, entity_ids, triple_ids, position_ids)
+        # k_output = self.k_enc(input_ids=knowledge, attention_mask=knowledge_mask, inputs_embeds=knowlegde_emb)
+        k_output = self.k_enc(attention_mask=knowledge_mask, inputs_embeds=knowlegde_emb)
+        k_state = k_output.last_hidden_state
 
         emotion = data['emotion']
         emotion_mask = data['emotion'].ne(0).detach()
         next_emo = data['next_emotion']
-        emotion_class_hidden = torch.cat((c_state, g_state, knowledge), 1)
+        emotion_class_hidden = torch.cat((c_enc_output, g_state, k_state), 1)
         if self.method == 'mle_train':
             e, Loss_e, e_hidden = self.Emo_Class(emotion_class_hidden, emotion, emotion_mask, next_emotion=next_emo, train=True)
         else:
@@ -278,33 +141,13 @@ class S2SA(EncDecModel):
             if x[i] == y[i]:
                 count += 1
 
-        hidden_sum = torch.cat((c_state, e_hidden.transpose(0, 1), g_state), dim=2)
+        hidden_sum = torch.cat((c_enc_output, e_hidden.transpose(0, 1), g_state), dim=1)
 
-        '''
-        att_hidden = self.attn_linear(hidden_sum)[:, 0, :].unsqueeze(1)
-        attn, attn_weights = self.attention(att_hidden.transpose(0, 1), knowledge.transpose(0, 1), knowledge.transpose(0, 1), key_padding_mask=knowledge_mask, need_weights=True)
-        # 1 * batch * hidden & 1 * batch * knowledge_num
-        sel_knowledge_idx = attn_weights.argmax(dim=-1).squeeze(0)  # batch_size
-        sel_knowledge = None  # 1 * batch_size * hidden
-        # sel_knowledge_input = None  # batch * len
-        # sel_knowledge_encode = None  # batch * len * hidden
-        for i in range(batch_size):
-            if i == 0:
-                sel_knowledge = knowledge[i, sel_knowledge_idx[i], :].unsqueeze(0).unsqueeze(1)
-            else:
-                sel_knowledge = torch.cat((sel_knowledge, knowledge[i, sel_knowledge_idx[i], :].unsqueeze(0).unsqueeze(1)), dim=0)
-
-        if self.method == 'mle_train':
-            e, Loss_ke, e_hidden = self.Emo_Class(sel_knowledge, emotion, emotion_mask, next_emotion=next_emo, train=True)
-            Loss_e = Loss_e + Loss_ke
-        '''
-
-        c_enc_output = torch.cat((c_enc_output[:, :, 0:self.hidden_size], knowledge), dim=1)
-        # decoder_hidden = torch.cat((hidden_sum[:, 0, :].unsqueeze(1), sel_knowledge), dim=2)
+        c_enc_output = torch.cat((c_enc_output[:, :, 0:self.hidden_size], k_state), dim=1)
         decoder_hidden = hidden_sum[:, 0, :].unsqueeze(1)
 
         if self.method == 'mle_train':
-            return (c_enc_output, decoder_hidden), KL_Loss, Loss_e, count, knowledge_mask
+            return (c_enc_output, decoder_hidden), Loss_e, count, knowledge_mask
         else:
             return (c_enc_output, decoder_hidden), count, knowledge_mask
 
@@ -316,9 +159,14 @@ class S2SA(EncDecModel):
 
     def decode(self, data, previous_word, encode_outputs, previous_deocde_outputs, knowledge_mask):
         c_mask = torch.cat((data['context'].ne(0), knowledge_mask.transpose(0, 1)), dim=1)
-        feature_output, [gru_state], [src_attn] = self.dec(previous_word, previous_deocde_outputs['state'],
-                                                           encode_outputs[0], src_mask=c_mask)
-        return {'state': gru_state, 'feature': feature_output}
+        decoder_outputs = self.dec(
+            input_ids=previous_word.unsqueeze(1),
+            # attention_mask=c_mask,
+            encoder_hidden_states=encode_outputs[0],
+            encoder_attention_mask=c_mask
+        )
+
+        return {'state': decoder_outputs[0], 'feature': decoder_outputs.last_hidden_state}
 
     def generate(self, data, encode_outputs, decode_outputs, softmax=True):
         return self.gen(decode_outputs['feature'])
@@ -333,11 +181,11 @@ class S2SA(EncDecModel):
         return to_sentence(batch_indices, self.id2vocab)
 
     def mle_train(self, data):
-        encode_output, init_decoder_state, all_decode_output, all_gen_output, KL_loss, Emotion_loss, count =\
+        encode_output, init_decoder_state, all_decode_output, all_gen_output, Emotion_loss, count =\
             decode_to_end(self, data, self.vocab2id, tgt=data['response'])
         gen_output = torch.cat([p.unsqueeze(1) for p in all_gen_output], dim=1)
         loss = F.cross_entropy(gen_output.view(-1, gen_output.size(-1)), data['response'].view(-1), ignore_index=0)
-        loss = loss.unsqueeze(0) * 0.7 + Emotion_loss * 0.2 + KL_loss * 0.1
+        loss = loss.unsqueeze(0) * 0.7 + Emotion_loss * 0.3
         return loss.unsqueeze(0), count
 
     def forward(self, data, method='mle_train'):

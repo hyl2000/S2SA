@@ -3,80 +3,29 @@ from torch import optim
 from DefaultTrainer import *
 import torch.backends.cudnn as cudnn
 import argparse
+import Constants
 import os
 from Model import *
 from Utils import *
 import torch
 from tqdm import tqdm, trange
-
+from transformers import AdamW, Adafactor, T5Tokenizer, AutoTokenizer, AutoModelForSeq2SeqLM
 cudaid = 0
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cudaid)
 
 base_output_path = 'output/'
 
 embedding_size = 300
-hidden_size = 256
-knowledge_len = 300
+hidden_size = 512
+knowledge_len = 512
 min_vocab_freq = 50
-
-
-def train_GCN(model, train_data, test_graph, valid_triplets, all_triplets):
-    use_cuda = torch.cuda.is_available()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    reg_ratio = 1e-2
-    best_mrr = 0
-    grad_norm = 1.0
-    n_epochs = 6000
-    evaluate_every = 100
-
-    print(model)
-
-    if use_cuda:
-        model.cuda()
-
-    for epoch in trange(1, (n_epochs + 1), desc='Epochs', position=0):
-
-        model.train()
-        optimizer.zero_grad()
-
-        if use_cuda:
-            device = torch.device('cuda')
-            train_data.to(device)
-
-        entity_embedding = model(train_data.entity, train_data.edge_index, train_data.edge_type, train_data.edge_norm)
-        loss = model.score_loss(entity_embedding, train_data.samples, train_data.labels) + reg_ratio * model.reg_loss(
-            entity_embedding)
-
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), grad_norm)
-        optimizer.step()
-
-        if epoch % evaluate_every == 0:
-
-            tqdm.write("Train Loss {} at epoch {}".format(loss, epoch))
-
-            if use_cuda:
-                model.cpu()
-
-            model.eval()
-            entity_embedding = model(test_graph.entity, test_graph.edge_index, test_graph.edge_type,
-                                     test_graph.edge_norm)
-            valid_mrr = calc_mrr(entity_embedding, model.relation_embedding, valid_triplets, all_triplets, hits=[1, 3, 10])
-
-            if valid_mrr > best_mrr:
-                best_mrr = valid_mrr
-                torch.save({'state_dict': model.state_dict(), 'epoch': epoch},
-                           './output/model/best_mrr_model.pth')
-
-            if use_cuda:
-                model.cuda()
 
 
 def train(args):
     if torch.cuda.is_available():
         torch.cuda.set_device(args.local_rank)
-    # if torch.cuda.is_available():
-    #     torch.distributed.init_process_group(backend='nccl')
+
+    generator = AutoModelForSeq2SeqLM.from_pretrained(model_name)
 
     cudnn.enabled = True
     cudnn.benchmark = True
@@ -87,7 +36,7 @@ def train(args):
 
     init_seed(123456)
 
-    batch_size = 32
+    batch_size = 8
 
     output_path = base_output_path
     dataset = 'sample'
@@ -98,29 +47,28 @@ def train(args):
     vocab2id, id2vocab, entity2id, relation2id = load_vocab('data/vocab.txt', 'data/entities.txt', 'data/relations.txt', t=min_vocab_freq)
     print('load_vocab done')
 
-    train_dataset = Dataset(train_path, vocab2id, entity2id, relation2id, batch_size, valid_path, knowledge_len)
+    train_dataset = Dataset(train_path, vocab2id, entity2id, relation2id, batch_size, model_name, valid_path, knowledge_len)
     print('build data done')
-    GCN = RGCN(len(entity2id), len(relation2id), num_bases=4, dropout=0.5)
-    test_graph = build_test_graph(len(entity2id), len(relation2id), train_dataset.build_graph_data)
-    print('start training GCN...')
-    train_GCN(GCN, train_dataset.GCN_train_sample, test_graph, train_dataset.GCN_valid_sample, train_dataset.all_triplets)
-    checkpoint = torch.load('./output/model/best_mrr_model.pth')
-    GCN.load_state_dict(checkpoint['state_dict'])
-    print('GCN training finished')
-    model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, GCN, max_dec_len=70, beam_width=1)
+    model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, generator, max_dec_len=70, beam_width=1)
+    model_optimizer = optim.Adam(model.parameters())
+    if args.load_epoch != 0:
+        file = output_path + 'model/' + str(args.load_epoch) + '.pkl'
+        checkpoint = torch.load(file)
+        model.load_state_dict(checkpoint["state_dict"])
+        model_optimizer.load_state_dict(checkpoint["optimizer_state"])
+        args.load_epoch += 1
     print('build model done')
     init_params(model, escape='embedding')
     print('init_params done')
-    model_optimizer = optim.Adam(model.parameters())
 
     trainer = DefaultTrainer(model, args.local_rank)
     print('start training main model...')
-    for i in range(20):
+    for i in range(args.load_epoch, args.max_epoch):
         print('#', i)
         if i == 5:
             train_embedding(model)
         trainer.train_epoch('mle_train', train_dataset, collate_fn, batch_size, i, model_optimizer)
-        trainer.serialize(i, output_path=output_path)
+        trainer.serialize(model_optimizer, i, output_path=output_path)
 
 
 def test(args, beam_width):
@@ -139,26 +87,21 @@ def test(args, beam_width):
 
     dataset = 'sample'
     data_path = 'data/'
+    # model_name = 't5-base'
+    generator = AutoModelForSeq2SeqLM.from_pretrained(model_name)
     vocab2id, id2vocab, entity2id, relation2id = load_vocab('data/vocab.txt', 'data/entities.txt', 'data/relations.txt',
                                                             t=min_vocab_freq)
 
-    test_dataset = Dataset(data_path + dataset + '.'+"xtest.txt", vocab2id, entity2id, relation2id, batch_size, max_length=knowledge_len)
+    test_dataset = Dataset(data_path + dataset + '.'+"xtest.txt", vocab2id, entity2id, relation2id, batch_size, model_name, max_length=knowledge_len)
 
-    GCN = RGCN(len(entity2id), len(relation2id), num_bases=4, dropout=0.5)
-    checkpoint = torch.load('./output/model/best_mrr_model.pth')
-    GCN.load_state_dict(checkpoint['state_dict'])
-
-    # model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, max_dec_len=70, beam_width=beam_width)
-    # trainer = DefaultTrainer(model, None)
-    # trainer.test('test', test_dataset, collate_fn, batch_size, 0, output_path=output_path)
-
-    for i in range(20):
+    for i in range(args.max_epoch):
         print('epoch', i)
         file = output_path + 'model/' + str(i) + '.pkl'
 
         if os.path.exists(file):
-            model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, GCN, max_dec_len=70, beam_width=beam_width)
-            model.load_state_dict(torch.load(file))
+            model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, generator, max_dec_len=70, beam_width=beam_width)
+            checkpoint = torch.load(file)
+            model.load_state_dict(checkpoint["state_dict"])
             trainer = DefaultTrainer(model, None)
             trainer.test('test', test_dataset, collate_fn, batch_size, 100 + i, output_path=output_path)
 
@@ -168,6 +111,8 @@ if __name__ == '__main__':
     parser.add_argument("--local_rank", default=0, type=int)
     parser.add_argument("--mode", default='train', type=str)
     parser.add_argument("--beam_width", default=5, type=int)
+    parser.add_argument("--load_epoch", default=0, type=int)
+    parser.add_argument("--max_epoch", default=15, type=int)
     args = parser.parse_args()
 
     # test(args)
@@ -176,3 +121,26 @@ if __name__ == '__main__':
         test(args, args.beam_width)
     elif args.mode == 'train':
         train(args)
+
+'''
+    Hugging face Examples::
+
+    >> > from transformers import T5Tokenizer, T5ForConditionalGeneration
+
+    >> > tokenizer = T5Tokenizer.from_pretrained('t5-small')
+    >> > model = T5ForConditionalGeneration.from_pretrained('t5-small')
+
+    >> >  # training
+    >> > input_ids = tokenizer('The <extra_id_0> walks in <extra_id_1> park', return_tensors='pt').input_ids
+    >> > labels = tokenizer('<extra_id_0> cute dog <extra_id_1> the <extra_id_2>', return_tensors='pt').input_ids
+    >> > outputs = model(input_ids=input_ids, labels=labels)
+    >> > loss = outputs.loss
+    >> > logits = outputs.logits
+
+    >> >  # inference
+    >> > input_ids = tokenizer("summarize: studies have shown that owning a dog is good for you",
+                               return_tensors="pt").input_ids  # Batch size 1
+    >> > outputs = model.generate(input_ids)
+    >> > print(tokenizer.decode(outputs[0], skip_special_tokens=True))
+    >> >  # studies have shown that owning a dog is good for you.
+'''

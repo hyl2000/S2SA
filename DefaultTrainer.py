@@ -58,13 +58,14 @@ class DefaultTrainer(object):
         optimizer.step()
         return closs, count
 
-    def serialize(self, epoch, output_path):
+    def serialize(self, optimizer, epoch, output_path):
         if self.local_rank != 0:
             return
         output_path = os.path.join(output_path, 'model/')
         if not os.path.exists(output_path):
             os.makedirs(output_path)
-        torch.save(self.eval_model.state_dict(), os.path.join(output_path, '.'.join([str(epoch), 'pkl'])))
+        torch.save({'state_dict': self.eval_model.state_dict(), 'optimizer_state': optimizer.state_dict()},
+                   os.path.join(output_path, '.'.join([str(epoch), 'pkl'])))
 
     def train_epoch(self, method, train_dataset, train_collate_fn, batch_size, epoch, optimizer):
         self.model.train()
@@ -128,7 +129,7 @@ class DefaultTrainer(object):
                 for i in range(len(data['id'])):
                     total += 1
                     idx = data['id'][i].item()
-                    systems.append(' '.join(sents[i]) + '\t' + dataset.response[idx][:-6])
+                    systems.append(''.join(sents[i]) + '\t' + dataset.response[idx][:-5])
 
             output_path = os.path.join(output_path, 'result_raw/')
             if not os.path.exists(output_path):

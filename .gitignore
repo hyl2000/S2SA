@@ -8,6 +8,9 @@ bin-release/
 .settings/
 /data/
 /output/
+/mt5-base/
+/mt5-small/
+/t5-base/
 /.idea/
 /__pycache__/
 
