@@ -3,10 +3,15 @@ from Utils import *
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AdamW, Adafactor, T5Tokenizer, AutoTokenizer, AutoModelForSeq2SeqLM
 import json
+from nltk.corpus import wordnet
+import nltk
 import re
 
+VAD = json.load(open("./data/VAD.json", "r", encoding="utf-8"))
+concept = json.load(open("./data/ConceptNet.json", "r", encoding="utf-8"))
 
-def takeSecond(elem):
+
+def takeFirst(elem):
     return elem[0]
 
 
@@ -133,8 +138,14 @@ class Dataset(Dataset):
                 a = ''.join(a.split(' '))
                 b = ''.join(b.split(' '))
                 c = ''.join(c.split(' '))
+                if len(a) > 100:
+                    a = a[:100]
+                if len(b) > 100:
+                    b = b[:100]
+                if len(c) > 100:
+                    c = c[:100]
                 entities_t.append((a, b, c))
-            entities_t.sort(key=takeSecond)
+            entities_t.sort(key=takeFirst)
             entities = []
             now = entities_t[0][0]
             temp = []
