@@ -158,7 +158,7 @@ class S2SA(EncDecModel):
         return self.enc2dec(c_state.contiguous().view(batch_size, -1)).view(batch_size, 1, -1)
 
     def decode(self, data, previous_word, encode_outputs, previous_deocde_outputs, knowledge_mask):
-        c_mask = torch.cat((data['context'].ne(0), knowledge_mask.transpose(0, 1)), dim=1)
+        c_mask = torch.cat((data['context'].ne(0), knowledge_mask), dim=1)
         decoder_outputs = self.dec(
             input_ids=previous_word.unsqueeze(1),
             # attention_mask=c_mask,

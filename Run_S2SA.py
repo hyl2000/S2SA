@@ -36,7 +36,7 @@ def train(args):
 
     init_seed(123456)
 
-    batch_size = 8
+    batch_size = 1
 
     output_path = base_output_path
     dataset = 'sample'
@@ -112,7 +112,7 @@ if __name__ == '__main__':
     parser.add_argument("--mode", default='train', type=str)
     parser.add_argument("--beam_width", default=5, type=int)
     parser.add_argument("--load_epoch", default=0, type=int)
-    parser.add_argument("--max_epoch", default=15, type=int)
+    parser.add_argument("--max_epoch", default=20, type=int)
     args = parser.parse_args()
 
     # test(args)

@@ -185,6 +185,8 @@ class Dataset(Dataset):
                 triple_ids = torch.LongTensor(triple_ids + [0] * (self.max_enc_len - len(strings)))
                 position_ids = torch.LongTensor(position_ids + [0] * (self.max_enc_len - len(strings)))
 
+            if len(sample['emotion']) == 1:
+                sample['emotion'].append('中立')
             emotion_tensor = torch.tensor([self.emotion_vocab.get(w) for w in sample['emotion'][:-1]], requires_grad=False).long()
             next_emotion = torch.tensor([self.emotion_vocab.get(sample['emotion'][-1])], requires_grad=False).long()
 
