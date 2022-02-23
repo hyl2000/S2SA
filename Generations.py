@@ -137,7 +137,7 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
         #                      knowledge_mask=knowledge_mask[:, i].unsqueeze(1), batch_id=i)]  # TODO
         next_fringe += [Node(parent=None, state=get_data(i, decode_outputs), word=UNK_WORD, value=2, cost=0.0,
                              encode_outputs=get_data(i, encode_outputs), data=get_data(i, data),
-                             knowledge_mask=knowledge_mask[:, i].unsqueeze(1), batch_id=i)]
+                             knowledge_mask=knowledge_mask[i, :].unsqueeze(0), batch_id=i)]
         results[i] = []
 
     for l in range(max_len+1):
@@ -158,7 +158,7 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
         decoder_input = new_tensor([n.value for n in fringe], requires_grad=False)
         decoder_input = model.generation_to_decoder_input(data, decoder_input)
 
-        knowledge_mask = torch.cat([n.knowledge_mask for n in fringe], dim=1)
+        knowledge_mask = torch.cat([n.knowledge_mask for n in fringe], dim=0)
 
         decode_outputs = model.decode(
             data, decoder_input, encode_outputs, decode_outputs, knowledge_mask

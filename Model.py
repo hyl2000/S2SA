@@ -97,9 +97,6 @@ class S2SA(EncDecModel):
         self.g_enc.load_state_dict(pretrain_model.get_encoder().state_dict())
         self.k_enc = T5Stack(encoder_config, self.knowledge_embedding)
 
-        self.knowledge_linear = nn.Linear(100, self.hidden_size)
-
-        self.enc2dec = nn.Linear(self.hidden_size, self.hidden_size)
         self.dec = pretrain_model.get_decoder()
         self.gen = nn.Linear(self.hidden_size, config.vocab_size)
 
@@ -155,7 +152,7 @@ class S2SA(EncDecModel):
         c_state = encode_output[1][:, 0, :]
         batch_size = encode_output[0].size(0)
 
-        return self.enc2dec(c_state.contiguous().view(batch_size, -1)).view(batch_size, 1, -1)
+        return c_state.contiguous().view(batch_size, 1, -1)
 
     def decode(self, data, previous_word, encode_outputs, previous_deocde_outputs, knowledge_mask):
         c_mask = torch.cat((data['context'].ne(0), knowledge_mask), dim=1)

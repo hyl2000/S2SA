@@ -81,7 +81,7 @@ def test(args, beam_width):
 
     init_seed(123456)
 
-    batch_size = 64
+    batch_size = 2
 
     output_path = base_output_path
 

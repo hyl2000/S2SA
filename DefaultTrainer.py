@@ -56,6 +56,7 @@ class DefaultTrainer(object):
 
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 2)
         optimizer.step()
+        torch.cuda.empty_cache()
         return closs, count
 
     def serialize(self, optimizer, epoch, output_path):
