@@ -38,10 +38,11 @@ def importance_sampling(prob, topk):
     return values, indices
 
 
-def decode_to_end(model, data, vocab2id, max_target_length=None, schedule_rate=1, softmax=False, encode_outputs=None,
+def decode_to_end(model, data, tokenizer, max_target_length=None, schedule_rate=1, softmax=False, encode_outputs=None,
                   init_decoder_states=None, tgt=None):
     # if tgt is None:
     #     tgt = data['output']
+    BOS = tokenizer.encode(BOS_WORD)[0]
     batch_size = len(data['id'])
     if max_target_length is None:
         max_target_length = tgt.size(1)
@@ -51,8 +52,8 @@ def decode_to_end(model, data, vocab2id, max_target_length=None, schedule_rate=1
     if init_decoder_states is None:
         init_decoder_states = model.init_decoder_states(data, encode_outputs)
 
-    # decoder_input = new_tensor([vocab2id[BOS_WORD]] * batch_size, requires_grad=False)  # TODO
-    decoder_input = new_tensor([2] * batch_size, requires_grad=False)
+    # decoder_input = new_tensor([vocab2id[BOS_WORD]] * batch_size, requires_grad=False)
+    decoder_input = new_tensor([BOS] * batch_size, requires_grad=False)
 
     prob = torch.ones((batch_size,)) * schedule_rate
     if torch.cuda.is_available():
@@ -149,8 +150,8 @@ def remove_duplicate(sents, n=3):
         changed = remove_duplicate_once(sents, n)
 
 
-def to_sentence(batch_indices, id2vocab):
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+def to_sentence(batch_indices, tokenizer):
+    # tokenizer = AutoTokenizer.from_pretrained(model_name)
     batch_size = len(batch_indices)
     summ = list()
     for i in range(batch_size):

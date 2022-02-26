@@ -58,17 +58,15 @@ class KnowledgeEmbeddings(nn.Module):
 
 
 class S2SA(EncDecModel):
-    def __init__(self, embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, pretrain_model=None,
+    def __init__(self, hidden_size, tokenizer, entity2id, relation2id, pretrain_model=None,
                  max_dec_len=120, beam_width=1, eps=1e-12, emb_matrix=None):
-        super(S2SA, self).__init__(vocab2id=vocab2id, max_dec_len=max_dec_len, beam_width=beam_width, eps=eps)
+        super(S2SA, self).__init__(max_dec_len=max_dec_len, beam_width=beam_width, eps=eps)
 
         self.method = "mle_train"
-        self.id2vocab = id2vocab
-        self.entity2id = entity2id
-        self.relation2id = relation2id
         self.emotion_vocab = {'pad': 0, '认同': 1, '不认同': 2, '开心': 3, '伤心': 4, '惊讶': 5, '好奇': 6, '中立': 7}
         self.hidden_size = hidden_size
         self.beam_width = beam_width
+        self.tokenizer = tokenizer
 
         self.Emo_Class = Emo_Classfication(hidden_size, self.emotion_vocab, num_layers=1, bidirectional=True)
 
@@ -90,23 +88,28 @@ class S2SA(EncDecModel):
         knowledge_config.hidden_dropout_prob = 0.1
         self.knowledge_embedding = KnowledgeEmbeddings(knowledge_config)
         self.c_enc = T5Stack(encoder_config, self.shared)
-        self.b_enc = T5Stack(encoder_config, self.shared)
+        # self.b_enc = T5Stack(encoder_config, self.shared)
         self.g_enc = T5Stack(encoder_config, self.shared)
+        self.k_enc = T5Stack(encoder_config, self.shared)
         self.c_enc.load_state_dict(pretrain_model.get_encoder().state_dict())
-        self.b_enc.load_state_dict(pretrain_model.get_encoder().state_dict())
+        # self.b_enc.load_state_dict(pretrain_model.get_encoder().state_dict())
         self.g_enc.load_state_dict(pretrain_model.get_encoder().state_dict())
-        self.k_enc = T5Stack(encoder_config, self.knowledge_embedding)
+        self.k_enc.load_state_dict(pretrain_model.get_encoder().state_dict())
 
         self.dec = pretrain_model.get_decoder()
+        self.dec.load_state_dict(pretrain_model.get_decoder().state_dict())
         self.gen = nn.Linear(self.hidden_size, config.vocab_size)
 
     def encode(self, data):
         c_mask = data['context'].ne(0).detach()
-        b_mask = data['reverse'].ne(0).detach()
+        # b_mask = data['reverse'].ne(0).detach()
 
         batch_size, _ = data['reverse'].size()
         c_output = self.c_enc(input_ids=data['context'], attention_mask=c_mask)
         c_enc_output = c_output.last_hidden_state  # last hidden: batch_size * length * hidden_size
+
+        # b_output = self.b_enc(input_ids=data['reverse'], attention_mask=b_mask)
+        # b_enc_output = b_output.last_hidden_state  # last hidden: batch_size * length * hidden_size
 
         g_mask = data['goal'].ne(0).detach()
         g_output = self.g_enc(input_ids=data['goal'], attention_mask=g_mask)
@@ -174,12 +177,12 @@ class S2SA(EncDecModel):
         else:
             return randomk(gen_output, k=k)
 
-    def to_sentence(self, data, batch_indices):
-        return to_sentence(batch_indices, self.id2vocab)
+    def to_sentence(self, data, batch_indices, tokenizer):
+        return to_sentence(batch_indices, tokenizer)
 
     def mle_train(self, data):
         encode_output, init_decoder_state, all_decode_output, all_gen_output, Emotion_loss, count =\
-            decode_to_end(self, data, self.vocab2id, tgt=data['response'])
+            decode_to_end(self, data, self.tokenizer, tgt=data['response'])
         gen_output = torch.cat([p.unsqueeze(1) for p in all_gen_output], dim=1)
         loss = F.cross_entropy(gen_output.view(-1, gen_output.size(-1)), data['response'].view(-1), ignore_index=0)
         loss = loss.unsqueeze(0) * 0.7 + Emotion_loss * 0.3

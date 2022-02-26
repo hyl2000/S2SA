@@ -5,10 +5,11 @@ from torch.distributions.categorical import *
 from Constants import *
 
 
-def sample(model, data, vocab2id, max_len=20, encode_outputs=None, init_decoder_states=None):
-    EOS = 0
-    UNK = 2
-    PAD = 0
+def sample(model, data, tokenizer, max_len=20, encode_outputs=None, init_decoder_states=None):
+    EOS = tokenizer.encode(EOS_WORD)[0]
+    UNK = tokenizer.encode(UNK_WORD)[0]
+    PAD = tokenizer.encode(PAD_WORD)[0]
+    BOS = tokenizer.encode(BOS_WORD)[0]
 
     batch_size = data['id'].size(0)
 
@@ -18,8 +19,7 @@ def sample(model, data, vocab2id, max_len=20, encode_outputs=None, init_decoder_
     if init_decoder_states is None:
         init_decoder_states = model.init_decoder_states(data, encode_outputs)
 
-    # init_decoder_input = new_tensor([BOS] * batch_size, requires_grad=False)  # TODO
-    init_decoder_input = new_tensor([2] * batch_size, requires_grad=False)
+    init_decoder_input = new_tensor([BOS] * batch_size, requires_grad=False)
 
     indices = list()
     end = new_tensor([0] * batch_size).long() == 1
@@ -64,10 +64,11 @@ def sample(model, data, vocab2id, max_len=20, encode_outputs=None, init_decoder_
     return torch.cat(indices, dim=1), encode_outputs, init_decoder_states, all_decode_outputs, all_gen_outputs
 
 
-def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_states=None):
-    EOS = 0
-    UNK = 2
-    PAD = 0
+def greedy(model,data,tokenizer,max_len=20, encode_outputs=None, init_decoder_states=None):
+    EOS = tokenizer.encode(EOS_WORD)[0]
+    UNK = tokenizer.encode(UNK_WORD)[0]
+    PAD = tokenizer.encode(PAD_WORD)[0]
+    BOS = tokenizer.encode(BOS_WORD)[0]
 
     batch_size=data['id'].size(0)
 
@@ -79,8 +80,7 @@ def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_sta
     else:
         decoder_states=init_decoder_states
 
-    # decoder_input = new_tensor([BOS] * batch_size, requires_grad=False)  # TODO
-    decoder_input = new_tensor([2] * batch_size, requires_grad=False)
+    decoder_input = new_tensor([BOS] * batch_size, requires_grad=False)
     all_decode_outputs = [dict({'state': decoder_states})]
 
     greedy_indices=list()
@@ -111,8 +111,11 @@ def greedy(model,data,vocab2id,max_len=20, encode_outputs=None, init_decoder_sta
     return greedy_indice, count
 
 
-def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_decoder_states=None):
-    EOS = 0
+def beam(model, data, tokenizer, max_len=20, width=5, encode_outputs=None, init_decoder_states=None):
+    EOS = tokenizer.encode(EOS_WORD)[0]
+    UNK = tokenizer.encode(UNK_WORD)[0]
+    PAD = tokenizer.encode(PAD_WORD)[0]
+    BOS = tokenizer.encode(BOS_WORD)[0]
 
     batch_size = data['id'].size(0)
 
@@ -132,10 +135,7 @@ def beam(model, data, vocab2id, max_len=20, width=5, encode_outputs=None, init_d
     next_fringe = []
     results = dict()
     for i in range(batch_size):
-        # next_fringe += [Node(parent=None, state=get_data(i, decode_outputs), word=BOS_WORD, value=BOS, cost=0.0,
-        #                      encode_outputs=get_data(i, encode_outputs), data=get_data(i, data),
-        #                      knowledge_mask=knowledge_mask[:, i].unsqueeze(1), batch_id=i)]  # TODO
-        next_fringe += [Node(parent=None, state=get_data(i, decode_outputs), word=UNK_WORD, value=2, cost=0.0,
+        next_fringe += [Node(parent=None, state=get_data(i, decode_outputs), word=BOS_WORD, value=BOS, cost=0.0,
                              encode_outputs=get_data(i, encode_outputs), data=get_data(i, data),
                              knowledge_mask=knowledge_mask[i, :].unsqueeze(0), batch_id=i)]
         results[i] = []

@@ -15,15 +15,6 @@ def takeFirst(elem):
     return elem[0]
 
 
-def pad_knowledge(knowledge):
-    for i in range(len(knowledge)):
-        if len(knowledge[i]) > 50:
-            knowledge[i] = knowledge[i][0:50]
-        else:
-            knowledge[i] = knowledge[i] + (50 - len(knowledge[i])) * [0]
-    return knowledge
-
-
 def linearize_v2(tokenizer, entity):
     string = tokenizer.encode('[ENT] {}'.format(entity[0]), add_special_tokens=False)  # entity[0]代表A实体
     triple_id = [1] * len(string)
@@ -46,30 +37,23 @@ def linearize_v2(tokenizer, entity):
 
 
 class Dataset(Dataset):
-    def __init__(self, path, vocab2id, entity2id, relation2id, batch_size, model_name, valid_path=None, max_length=200, n=1E10):
+    def __init__(self, path, tokenizer, batch_size, model_name, valid_path=None, max_length=200, n=1E10):
         super(Dataset, self).__init__()
 
         self.emotion_vocab = {'pad': 0, '认同': 1, '不认同': 2, '开心': 3, '伤心': 4, '惊讶': 5, '好奇': 6, '中立': 7}
-        self.pad_idx = 0
-        self.max_enc_len = 1024
+        self.pad_idx = tokenizer.encode(PAD_WORD)[0]
+        self.max_enc_len = 512
 
         self.max_length = max_length
         self.path = path
         self.valid_path = valid_path
         self.batch_size = batch_size
+        self.tokenizer = tokenizer
 
         self.response = []
         self.context = []
 
-        self.vocab2id = vocab2id
-        self.entity2id = entity2id
-        self.relation2id = relation2id
         self.model_name = model_name
-        # self.knowledge_data = None
-        self.GCN_train_sample = None
-        self.GCN_valid_sample = None
-        self.build_graph_data = None
-        self.all_triplets = None
         self.n = n
 
         self.sample_tensor = []
@@ -78,7 +62,6 @@ class Dataset(Dataset):
         self.load()
 
     def load(self):
-        tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         with open(self.path, 'r', encoding='utf-8') as f:
             for i, line in enumerate(f):
                 session = json.loads(line.strip(), encoding="utf-8")
@@ -105,7 +88,7 @@ class Dataset(Dataset):
                 contexts = '<nan>' + contexts
             # self.context.append(' '.join(contexts))
             self.context.append(contexts)
-            contexts = tokenizer.encode(contexts)
+            contexts = self.tokenizer.encode(contexts)[:-1][-128:]
             context_tensor = torch.tensor(contexts[-self.max_length:])
 
             reverse = (' ' + SEP_WORD + ' ').join(sample["reverse"])
@@ -113,22 +96,22 @@ class Dataset(Dataset):
 
             while len(reverse) < 2:
                 reverse = '<nan>' + reverse
-            reverse = tokenizer.encode(reverse)
+            reverse = self.tokenizer.encode(reverse)[:-1][-128:]
             reverse_tensor = torch.tensor(reverse[-self.max_length:])
 
-            response = (''.join(sample['response'].split(' ')) + PAD_WORD)[:256]
+            response = (BOS_WORD + ''.join(sample['response'].split(' ')) + EOS_WORD)
             self.response.append(response)
-            response = tokenizer.encode(response)
+            response = self.tokenizer.encode(response)[:-1][:64]
             response_tensor = torch.tensor(response)
 
             goal = sample['goal']
             goal_full = []
             for g in goal:
                 g_type, _, g_entity = g
-                goal_full.append(g_type + ' ' + SEP_WORD + ' ' + g_entity)
-            goal_full = (' ' + CLS_WORD + ' ').join(goal_full)
+                goal_full.append(g_type + SEP_WORD + g_entity)
+            goal_full = (CLS_WORD).join(goal_full)
             goal_full = ''.join(goal_full.split(' '))
-            goal_full = tokenizer.encode(goal_full)
+            goal_full = self.tokenizer.encode(goal_full)[:-1][:128]
             goal_tensor = torch.tensor(goal_full)
 
             entities_t = []
@@ -138,12 +121,12 @@ class Dataset(Dataset):
                 a = ''.join(a.split(' '))
                 b = ''.join(b.split(' '))
                 c = ''.join(c.split(' '))
-                if len(a) > 100:
-                    a = a[:100]
-                if len(b) > 100:
-                    b = b[:100]
-                if len(c) > 100:
-                    c = c[:100]
+                if len(a) > 50:
+                    a = a[:50]
+                if len(b) > 50:
+                    b = b[:50]
+                if len(c) > 50:
+                    c = c[:50]
                 entities_t.append((a, b, c))
             entities_t.sort(key=takeFirst)
             entities = []
@@ -165,7 +148,7 @@ class Dataset(Dataset):
 
                 # entity = self.knowledge[entity_id]
 
-                string, triple_id = linearize_v2(tokenizer, entity)
+                string, triple_id = linearize_v2(self.tokenizer, entity)
 
                 strings += string
                 entity_ids += [i + 1] * len(string)
@@ -174,7 +157,7 @@ class Dataset(Dataset):
             position_ids = list(range(len(strings)))
             assert len(strings) == len(entity_ids) == len(triple_ids) == len(position_ids)
 
-            if len(strings) >= 1024:
+            if len(strings) >= self.max_enc_len:
                 input_ids = torch.LongTensor(strings[:self.max_enc_len])
                 entity_ids = torch.LongTensor(entity_ids[:self.max_enc_len])
                 triple_ids = torch.LongTensor(triple_ids[:self.max_enc_len])

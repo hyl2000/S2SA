@@ -14,7 +14,7 @@ def train_embedding(model):
 
 def init_params(model, escape=None):
     for name, param in model.named_parameters():
-        if escape is not None and escape in name:
+        if (escape is not None and escape in name) or ('c_enc' in name) or ('b_enc' in name) or ('g_enc' in name) or ('k_enc' in name) or ('dec' in name):
             print('no_init', name, param.size())
             continue
         print('init', name, param.size())
@@ -23,7 +23,7 @@ def init_params(model, escape=None):
 
 
 class DefaultTrainer(object):
-    def __init__(self, model, local_rank):
+    def __init__(self, model, local_rank, tokenizer):
         super(DefaultTrainer, self).__init__()
         self.local_rank = local_rank
 
@@ -35,6 +35,7 @@ class DefaultTrainer(object):
         else:
             self.model = model
         self.eval_model = self.model
+        self.tokenizer = tokenizer
 
         # if torch.cuda.is_available() and local_rank is not None:
         #     print("GPU ", self.local_rank)
@@ -123,7 +124,7 @@ class DefaultTrainer(object):
 
                 indices, count = self.eval_model(data, method=method)
                 count_total += count
-                sents = self.eval_model.to_sentence(data, indices)
+                sents = self.eval_model.to_sentence(data, indices, self.tokenizer)
 
                 remove_duplicate(sents)
 

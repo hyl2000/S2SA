@@ -15,6 +15,7 @@ import sys
 import math
 from collections import Counter
 import importlib
+import jieba
 importlib.reload(sys)
 
 # reload(sys)
@@ -163,8 +164,10 @@ for i in range(20):
         tk = line.strip().split("\t")
         if len(tk) < 2:
             continue
-        pred_tokens = tk[0].strip().split(" ")
-        gold_tokens = tk[1].strip().split(" ")
+        # pred_tokens = tk[0].strip().split(" ")
+        # gold_tokens = tk[1].strip().split(" ")
+        pred_tokens = jieba.lcut(tk[0])
+        gold_tokens = jieba.lcut(tk[1])
         sents.append([pred_tokens, gold_tokens])
     # calc f1
     f1 = calc_f1(sents)

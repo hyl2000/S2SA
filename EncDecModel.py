@@ -3,12 +3,11 @@ import torch.nn as nn
 
 
 class EncDecModel(nn.Module):
-    def __init__(self, vocab2id, max_dec_len=120, beam_width=1, eps=1e-10):
+    def __init__(self, max_dec_len=120, beam_width=1, eps=1e-10):
         super(EncDecModel, self).__init__()
         self.eps = eps
         self.beam_width = beam_width
         self.max_dec_len = max_dec_len
-        self.vocab2id = vocab2id
 
     def encode(self, data):
         raise NotImplementedError
@@ -31,14 +30,14 @@ class EncDecModel(nn.Module):
     def loss(self,data, encode_output,decode_outputs, gen_outputs, reduction='mean'):
         raise NotImplementedError
 
-    def to_sentence(self, data, batch_indice):
+    def to_sentence(self, data, batch_indice, tokenizer):
         raise NotImplementedError
 
     def sample(self, data):
         raise NotImplementedError
 
     def greedy(self, data):
-        return greedy(self,data,self.vocab2id, self.max_dec_len)
+        return greedy(self,data,self.tokenizer, self.max_dec_len)
 
     def beam(self, data):
-        return beam(self, data, self.vocab2id, self.max_dec_len, self.beam_width)
+        return beam(self, data, self.tokenizer, self.max_dec_len, self.beam_width)

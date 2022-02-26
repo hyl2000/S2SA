@@ -44,12 +44,15 @@ def train(args):
     train_path = data_path + dataset + '.' + "xtrain.txt"
     valid_path = data_path + dataset + '.' + "xdev.txt"
     print('go...')
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.add_tokens(['<pad>', '<bos>', '<unk>', '<eos>', '<sep>', '<cls>', '<nan>', '[ENT]', '[PRED]', '[SUB]', '[TRIPLE]'])
+    generator.resize_token_embeddings(len(tokenizer))
     vocab2id, id2vocab, entity2id, relation2id = load_vocab('data/vocab.txt', 'data/entities.txt', 'data/relations.txt', t=min_vocab_freq)
     print('load_vocab done')
 
-    train_dataset = Dataset(train_path, vocab2id, entity2id, relation2id, batch_size, model_name, valid_path, knowledge_len)
+    train_dataset = Dataset(train_path, tokenizer, batch_size, model_name, valid_path, knowledge_len)
     print('build data done')
-    model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, generator, max_dec_len=70, beam_width=1)
+    model = S2SA(hidden_size, tokenizer, entity2id, relation2id, generator, max_dec_len=70, beam_width=1)
     model_optimizer = optim.Adam(model.parameters())
     if args.load_epoch != 0:
         file = output_path + 'model/' + str(args.load_epoch) + '.pkl'
@@ -61,7 +64,7 @@ def train(args):
     init_params(model, escape='embedding')
     print('init_params done')
 
-    trainer = DefaultTrainer(model, args.local_rank)
+    trainer = DefaultTrainer(model, args.local_rank, tokenizer)
     print('start training main model...')
     for i in range(args.load_epoch, args.max_epoch):
         print('#', i)
@@ -88,21 +91,25 @@ def test(args, beam_width):
     dataset = 'sample'
     data_path = 'data/'
     # model_name = 't5-base'
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.add_tokens(['<pad>', '<bos>', '<unk>', '<eos>', '<sep>', '<cls>', '<nan>', '[ENT]', '[PRED]', '[SUB]', '[TRIPLE]'])
+
     generator = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    generator.resize_token_embeddings(len(tokenizer))
     vocab2id, id2vocab, entity2id, relation2id = load_vocab('data/vocab.txt', 'data/entities.txt', 'data/relations.txt',
                                                             t=min_vocab_freq)
 
-    test_dataset = Dataset(data_path + dataset + '.'+"xtest.txt", vocab2id, entity2id, relation2id, batch_size, model_name, max_length=knowledge_len)
+    test_dataset = Dataset(data_path + dataset + '.'+"xtest.txt", tokenizer, batch_size, model_name, max_length=knowledge_len)
 
     for i in range(args.max_epoch):
         print('epoch', i)
         file = output_path + 'model/' + str(i) + '.pkl'
 
         if os.path.exists(file):
-            model = S2SA(embedding_size, hidden_size, vocab2id, id2vocab, entity2id, relation2id, generator, max_dec_len=70, beam_width=beam_width)
+            model = S2SA(hidden_size, tokenizer, entity2id, relation2id, generator, max_dec_len=70, beam_width=1)
             checkpoint = torch.load(file)
             model.load_state_dict(checkpoint["state_dict"])
-            trainer = DefaultTrainer(model, None)
+            trainer = DefaultTrainer(model, None, tokenizer)
             trainer.test('test', test_dataset, collate_fn, batch_size, 100 + i, output_path=output_path)
 
 
